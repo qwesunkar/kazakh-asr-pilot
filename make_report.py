@@ -116,10 +116,11 @@ if len(ksc):
 # Third plot: the trade-off between the target language and the others (LoRA learning-rate sweep)
 TRADEOFF = [  # label, phase, model_short, label offset in points
     ("no fine-tuning", "phase1", "whisper-small", (-140, 14)),
-    ("full FT, lr 1e-5", "phase3", "whisper-small-kk-final", (-30, -38)),
+    ("full FT, lr 1e-5", "phase3", "whisper-small-kk-final", (-52, 16)),
     ("LoRA, lr 1e-4", "phase7_lora_lr1e-4", "lora-lr1e-4-final", (10, -6)),
     ("LoRA, lr 3e-4", "phase7_lora_lr3e-4", "lora-lr3e-4-final", (8, 12)),
     ("LoRA, lr 1e-3", "phase6_lora", "whisper-small-kk-lora-final", (12, -4)),
+    ("full FT + 20% ru/en data", "phase11_mix", "whisper-small-kk-mix-final", (14, -24)),
 ]
 pts = []
 for label, phase, model, off in TRADEOFF:
@@ -128,17 +129,18 @@ for label, phase, model, off in TRADEOFF:
         pts.append((label, sel["kk"], sel["ru"], off))
 if len(pts) >= 3:
     fig3, ax3 = plt.subplots(figsize=(7.2, 5))
-    ax3.plot([p[1] for p in pts[2:]], [p[2] for p in pts[2:]], "-", color="#c3c2b7", zorder=1,
+    lora = [p for p in pts if "LoRA" in p[0]]
+    ax3.plot([p[1] for p in lora], [p[2] for p in lora], "-", color="#c3c2b7", zorder=1,
              label="LoRA learning-rate sweep")
     for label, kk, ru, off in pts:
-        color = "#2a78d6" if "LoRA" in label else "#eb6834"
+        color = "#2a78d6" if "LoRA" in label else ("#1baf7a" if "ru/en" in label else "#eb6834")
         ax3.scatter(kk, ru, s=90, color=color, zorder=2, edgecolor="white", linewidth=1.5)
         ax3.annotate(f"{label}\nkk {kk:.3f} / ru {ru:.3f}", (kk, ru), textcoords="offset points",
                      xytext=off, fontsize=8.5, color="#333")
     ax3.set_xlabel("Kazakh WER, FLEURS test (target language, lower is better)")
     ax3.set_ylabel("Russian WER, FLEURS test (forgetting, lower is better)")
-    ax3.set_title("Adapting to Kazakh trades off against Russian\n"
-                  "All models start from whisper-small; 8 epochs on 11.8 h of Kazakh", fontsize=11)
+    ax3.set_title("Adapting to Kazakh trades off against Russian,\nunless other languages are rehearsed during training",
+                  fontsize=11)
     ax3.grid(True, color="#eeeeee")
     ax3.set_axisbelow(True)
     for sp in ["top", "right"]:

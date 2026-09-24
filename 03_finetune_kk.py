@@ -18,7 +18,7 @@ from torch.utils.data import Dataset
 from transformers import (Seq2SeqTrainer, Seq2SeqTrainingArguments,
                           WhisperForConditionalGeneration, WhisperProcessor)
 
-from common import load_fleurs, score
+from common import LANGS, load_fleurs, score
 
 MAX_AUDIO = 30 * 16000  # Whisper's context; longer utterances would be truncated against a full transcript
 
@@ -35,6 +35,8 @@ class FleursKK(Dataset):
     def __getitem__(self, i):
         x = self.items[i]
         feats = self.processor.feature_extractor(x["audio"], sampling_rate=16000).input_features[0]
+        # each example carries its own language token, so mixed-language batches stay labelled correctly
+        self.processor.tokenizer.set_prefix_tokens(language=LANGS[x.get("lang", "kk")]["whisper"])
         text = x["ref"]
         if self.timestamps:  # Whisper's timestamp grid is 0.02 s, capped at 30 s
             end = min(round(len(x["audio"]) / 16000 / 0.02) * 0.02, 30.0)
@@ -66,6 +68,9 @@ def main():
     ap.add_argument("--lora-r", type=int, default=32)
     ap.add_argument("--timestamps", action="store_true",
                     help="train with timestamp tokens, which Whisper's long-form decoding needs")
+    ap.add_argument("--mix", nargs="*", default=[], metavar="LANG",
+                    help="also train on this many utterances of other languages, e.g. --mix ru en")
+    ap.add_argument("--mix-utts", type=int, default=800, help="utterances per extra language")
     ap.add_argument("--out", default="checkpoints/whisper-small-kk")
     ap.add_argument("--resume", action="store_true", help="continue from the last checkpoint in --out")
     args = ap.parse_args()
@@ -75,6 +80,8 @@ def main():
         args.out = "checkpoints/whisper-small-kk-lora"
     if args.timestamps and args.out == "checkpoints/whisper-small-kk":
         args.out = "checkpoints/whisper-small-kk-ts"
+    if args.mix and args.out == "checkpoints/whisper-small-kk":
+        args.out = "checkpoints/whisper-small-kk-mix"
 
     processor = WhisperProcessor.from_pretrained(args.model, language="kazakh", task="transcribe",
                                                  predict_timestamps=args.timestamps)
@@ -92,9 +99,13 @@ def main():
             target_modules=["q_proj", "v_proj"]))
         model.print_trainable_parameters()
 
-    train = [x for x in load_fleurs("kk", "train") if len(x["audio"]) <= MAX_AUDIO]
-    val = [x for x in load_fleurs("kk", "validation") if len(x["audio"]) <= MAX_AUDIO]
-    print(f"train {len(train)} utts, validation {len(val)} utts", flush=True)
+    train = [dict(x, lang="kk") for x in load_fleurs("kk", "train") if len(x["audio"]) <= MAX_AUDIO]
+    for lang in args.mix:  # keep the other languages alive by rehearsing a slice of their training data
+        extra = [dict(x, lang=lang) for x in load_fleurs(lang, "train") if len(x["audio"]) <= MAX_AUDIO]
+        train += extra[:args.mix_utts]
+        print(f"+ {min(args.mix_utts, len(extra))} {lang} utts", flush=True)
+    val = [dict(x, lang="kk") for x in load_fleurs("kk", "validation") if len(x["audio"]) <= MAX_AUDIO]
+    print(f"train {len(train)} utts, validation {len(val)} utts (kk only)", flush=True)
 
     def compute_metrics(pred):
         label_ids = pred.label_ids.copy()
@@ -148,7 +159,7 @@ def main():
 
     summary = {
         "base_model": args.model, "lora": args.lora, "lora_r": args.lora_r if args.lora else None,
-        "timestamps": args.timestamps,
+        "timestamps": args.timestamps, "mix": args.mix, "mix_utts": args.mix_utts,
         "train_utts": len(train), "val_utts": len(val),
         "epochs": args.epochs, "max_steps": args.max_steps, "lr": args.lr, "out": args.out,
         "batch_size": args.batch_size, "grad_accum": args.grad_accum,

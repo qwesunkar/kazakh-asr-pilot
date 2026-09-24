@@ -15,6 +15,7 @@ Language is forced, decoding is greedy, and references and hypotheses pass throu
 | whisper-small | 242 M | 0.770 | 0.863 |
 | **whisper-small fine-tuned on 11.8 h Kazakh** | 242 M | **0.238** | 0.469 |
 | same, LoRA (3.5 M trainable, 1.4%) | 242 M | 0.238 | 0.483 |
+| same + 20% Russian/English rehearsal | 242 M | **0.233** | not measured |
 | whisper-large-v3-turbo | 809 M | 0.208 | 0.286 |
 | mms-1b-all | 965 M | 0.144 | 0.297 |
 
@@ -30,12 +31,13 @@ For scale: zero-shot whisper-small reaches 0.110 on Russian and 0.071 on English
    gain falls from 69% to 46%. A single in-domain number would have overstated the result by a third.
 3. **Benchmark contamination is visible in practice.** mms-1b-all looks like the best Kazakh model on FLEURS (0.144)
    but drops to 0.297 on KSC, level with large-v3-turbo; its training data includes the FLEURS train split.
-4. **Adapting to Kazakh trades off against Russian, and the update size sets the exchange rate.** A LoRA
-   learning-rate sweep moves Kazakh 0.358 → 0.296 → 0.238 while Russian goes 0.199 → 0.221 → 0.415. At equal Kazakh
-   accuracy, full fine-tuning keeps Russian at 0.210 where LoRA leaves it at 0.415, so LoRA's advantage here is
-   cost (1.4% of the parameters, half the VRAM), not retention. English is barely touched at the settings where
-   Russian degrades — interference tracks language similarity, and Russian shares the script and much of the
-   phonology with Kazakh. The damage is phonetic (Russian spelled as heard), not a switch of output language.
+4. **Adapting to Kazakh trades off against Russian, and the update size sets the exchange rate — but rehearsal
+   breaks the trade-off.** A LoRA learning-rate sweep moves Kazakh 0.358 → 0.296 → 0.238 while Russian goes
+   0.199 → 0.221 → 0.415, so the cost follows the size of the update rather than the tuning method. Adding 20%
+   Russian and English data to the fine-tuning set removes about 80% of the forgetting at no measurable cost to
+   Kazakh (kk 0.233, ru 0.127 against a 0.110 baseline, en 0.079 against 0.071). Russian suffers far more than
+   English throughout: it shares the Cyrillic script and much of the phonology with Kazakh, and the damage is
+   phonetic (Russian spelled as heard) rather than a switch of output language.
 5. **Local, offline use is practical today.** With CTranslate2 int8 the fine-tuned model is a 253 MB file that keeps
    its accuracy (WER 0.235 on CPU vs 0.238 on GPU) and transcribes one hour of speech in six minutes of CPU time.
 

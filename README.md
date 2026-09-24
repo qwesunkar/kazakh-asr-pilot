@@ -139,3 +139,11 @@ The lr 1e-3 point of the sweep is the phase 6 run.
 ```bash
 .venv/bin/python error_analysis_kk.py   # reads saved CSVs, writes results/error_analysis_kk.json
 ```
+
+## Phase 11: multilingual rehearsal
+
+```bash
+.venv/bin/python 03_finetune_kk.py --mix ru en --mix-utts 800 --epochs 8   # checkpoints/whisper-small-kk-mix
+.venv/bin/python 01_zero_shot.py --models checkpoints/whisper-small-kk-mix/final --out results/phase11_mix
+.venv/bin/python make_report.py
+```

@@ -1,0 +1,32 @@
+{
+  "base_model": "openai/whisper-small",
+  "lora": false,
+  "lora_r": null,
+  "timestamps": false,
+  "mix": [
+    "ru",
+    "en"
+  ],
+  "mix_utts": 20,
+  "train_utts": 3229,
+  "val_utts": 363,
+  "epochs": 3.0,
+  "max_steps": 6,
+  "lr": 1e-05,
+  "out": "checkpoints/mix_smoke",
+  "batch_size": 8,
+  "grad_accum": 2,
+  "train_runtime_s": 9.2301,
+  "peak_vram_alloc_gb": 5.756202496,
+  "log_history": [
+    {
+      "train_runtime": 9.2301,
+      "train_samples_per_second": 10.401,
+      "train_steps_per_second": 0.65,
+      "total_flos": 2.770419843072e+16,
+      "train_loss": 2.0087302525838218,
+      "epoch": 0.0297029702970297,
+      "step": 6
+    }
+  ]
+}

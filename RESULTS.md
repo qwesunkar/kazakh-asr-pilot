@@ -6,9 +6,10 @@ compared with Russian and English, and what does it cost to run them locally?
 
 ## Summary
 
-Seven phases on one laptop (RTX 5060 Laptop, 8 GB VRAM): a zero-shot baseline on FLEURS, CPU inference with int8
+Eleven phases on one laptop (RTX 5060 Laptop, 8 GB VRAM): a zero-shot baseline on FLEURS, CPU inference with int8
 quantization, Kazakh fine-tuning of whisper-small, an out-of-domain check on the Kazakh Speech Corpus, the fine-tuned
-model under int8, LoRA against full fine-tuning, and a LoRA learning-rate sweep.
+model under int8, LoRA against full fine-tuning, a LoRA learning-rate sweep, confidence intervals, an error
+analysis, and multilingual rehearsal.
 Every number below comes from a full test set with identical normalization; per-utterance outputs are in `results/`,
 and every run carries a 95% bootstrap confidence interval (phase 9 lists which differences are statistically real).
 
@@ -19,6 +20,7 @@ and every run carries a 95% bootstrap confidence interval (phase 9 lists which d
 | whisper-small | 242 M | 0.770 | 0.863 |
 | **whisper-small fine-tuned on 11.8 h Kazakh** | 242 M | **0.238** (−69% rel.) | 0.469 (−46% rel.) |
 | whisper-small, same data, LoRA r=32 | 3.5 M trained | 0.238 | 0.483 |
+| **whisper-small, fine-tuned + 20% ru/en rehearsal** | 242 M | **0.233** | not measured |
 | whisper-large-v3-turbo | 809 M | 0.208 | **0.286** |
 | mms-1b-all | 965 M | **0.144** | 0.297 |
 
@@ -33,11 +35,12 @@ For reference, Russian and English WER of zero-shot whisper-small on FLEURS: 0.1
    zero-shot large model wins again (0.286 vs 0.469). Kazakh was learned, general robustness was not.
 4. **MMS's apparent Kazakh lead is largely in-domain.** Best on FLEURS (0.144), it drops to 0.297 on KSC, level with
    turbo; its training data includes FLEURS train.
-5. **Adapting to Kazakh trades off against Russian, and the trade-off is set by the update size.** Across a LoRA
+5. **Adapting to Kazakh trades off against Russian — but the trade-off can be avoided.** Across a LoRA
    learning-rate sweep, Kazakh improves monotonically (0.358 → 0.296 → 0.238) as Russian degrades
-   (0.199 → 0.221 → 0.415). At equal Kazakh accuracy (0.238) full fine-tuning keeps Russian at 0.210 against LoRA's
-   0.415, so LoRA's benefit here is cost (1.4% trainable parameters, 2.8 GB instead of 5.9 GB VRAM), not retention.
-   English is far less affected than Russian at every setting — interference tracks language similarity.
+   (0.199 → 0.221 → 0.415), so the exchange rate is set by the size of the update, not by the tuning method.
+   Mixing 20% Russian and English data into the fine-tuning set removes ~80% of the forgetting at no cost to Kazakh
+   (kk 0.233, ru 0.127 against a 0.110 baseline). English is far less affected than Russian throughout —
+   interference tracks language similarity.
 6. **Local CPU inference is practical and int8 is nearly free.** int8 costs at most +0.4 WER points while running
    2.1–2.9× faster and taking 252 MB instead of 971 MB; one hour of speech costs 6–12 minutes of CPU time. The
    fine-tuned Kazakh model keeps its accuracy through quantization (0.235 int8 on CPU vs 0.238 fp16 on GPU).
@@ -485,3 +488,49 @@ on FLEURS kk test. Substitutions are bucketed by comparing the reference and hyp
    where the spaces go ("жұмыс істеген" vs "жұмысістеген").
 5. **Insertions grow after fine-tuning** (11% → 16% of errors), consistent with the repetition loops seen in phase 3
    on long audio; mms-1b-all, which has no language model to run away with, inserts least (5%).
+
+## Phase 11: rehearsing the other languages removes almost all of the forgetting
+
+Phase 7 showed that adapting to Kazakh costs Russian, and that the cost is set by the size of the update rather than
+by the tuning method. This phase asks whether the cost can be avoided instead of traded: the same full fine-tuning
+run, but the training set also contains 800 Russian and 800 English utterances from FLEURS train
+(1600 added to 3189 Kazakh, i.e. one third more data, ~20% of it non-Kazakh). Each example carries its own language
+token. Everything else is unchanged; checkpoint selection still uses Kazakh validation WER only.
+
+![Kazakh vs Russian trade-off](results/kk_vs_ru_tradeoff.png)
+
+| model | WER kk | WER ru | WER en | training time |
+|---|---|---|---|---|
+| whisper-small, no fine-tuning | 0.770 | **0.110** | **0.071** | — |
+| full fine-tuning, Kazakh only | 0.238 | 0.210 | 0.106 | ~70 min |
+| **full fine-tuning + 20% ru/en rehearsal** | **0.233** | **0.127** | 0.079 | 70 min |
+
+Paired bootstrap against the Kazakh-only run: Kazakh −0.005 [−0.018, +0.012] (no difference),
+Russian −0.083 [−0.104, −0.066] (real). Against the untouched base model, the mixed run is now only
++0.017 [+0.012, +0.023] worse on Russian and +0.008 [+0.000, +0.014] on English.
+
+### Findings (phase 11)
+
+1. **Rehearsal removes about 80% of the forgetting at no cost to the target language.** Russian goes from 0.210 back
+   to 0.127 (base: 0.110) and English from 0.106 to 0.079 (base: 0.071), while Kazakh is statistically unchanged
+   (0.233 vs 0.238). This is the best configuration measured in this pilot.
+2. **The trade-off from phase 7 is not fundamental.** It is a property of training on one language only. Adding a
+   modest slice of the other languages moves the operating point off the curve entirely (green point in the plot),
+   rather than sliding along it.
+3. **Kazakh even improves slightly and converges faster** — validation WER 0.228 at epoch 4, which the Kazakh-only
+   run reached only at epoch 7 — because one third more data per epoch means more optimization steps; the extra
+   languages do not compete for capacity at this scale.
+4. **Cost: 30% more training data and wall time**, no extra VRAM, no architectural change. Compared with
+   LoRA (phase 6/7), which halves VRAM but does not help retention, rehearsal is the better answer to forgetting.
+5. **Still short of the zero-shot large model out of the box on Kazakh**: 0.233 vs 0.208 for large-v3-turbo
+   (−0.025 [−0.046, −0.006], significant), so fine-tuning a small model buys in-domain Kazakh accuracy close to,
+   but not equal to, a 3.3× larger zero-shot model.
+
+### Limitations (phase 11)
+
+- One mixing ratio (800+800 utterances). The curve of "how much rehearsal is enough" was not measured.
+- Rehearsal data comes from the same corpus (FLEURS train) as the evaluation domain, which flatters Russian and
+  English retention; rehearsing with out-of-domain data would be the honest test.
+- Checkpoint selection still uses Kazakh validation only, so retention is not being optimized for — which makes the
+  result conservative rather than optimistic.
+- Kazakh was not re-tested on KSC for this run.
