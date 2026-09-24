@@ -126,3 +126,10 @@ done
 ```
 
 The lr 1e-3 point of the sweep is the phase 6 run.
+
+## Phase 8: timestamp-aware fine-tuning (negative result)
+
+```bash
+.venv/bin/python 03_finetune_kk.py --timestamps --epochs 8      # writes checkpoints/whisper-small-kk-ts
+.venv/bin/python 01_zero_shot.py --models checkpoints/whisper-small-kk-ts/final --out results/phase8_ts
+```

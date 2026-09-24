@@ -24,9 +24,10 @@ MAX_AUDIO = 30 * 16000  # Whisper's context; longer utterances would be truncate
 
 
 class FleursKK(Dataset):
-    def __init__(self, items, processor):
+    def __init__(self, items, processor, timestamps=False):
         self.items = items
         self.processor = processor
+        self.timestamps = timestamps  # wrap the transcript in <|0.00|> ... <|duration|>
 
     def __len__(self):
         return len(self.items)
@@ -34,7 +35,11 @@ class FleursKK(Dataset):
     def __getitem__(self, i):
         x = self.items[i]
         feats = self.processor.feature_extractor(x["audio"], sampling_rate=16000).input_features[0]
-        labels = self.processor.tokenizer(x["ref"]).input_ids
+        text = x["ref"]
+        if self.timestamps:  # Whisper's timestamp grid is 0.02 s, capped at 30 s
+            end = min(round(len(x["audio"]) / 16000 / 0.02) * 0.02, 30.0)
+            text = f"<|0.00|>{text}<|{end:.2f}|>"
+        labels = self.processor.tokenizer(text).input_ids
         return {"input_features": feats, "labels": labels}
 
 
@@ -59,6 +64,8 @@ def main():
     ap.add_argument("--lr", type=float, default=None, help="default: 1e-5 full, 1e-3 with --lora")
     ap.add_argument("--lora", action="store_true", help="train LoRA adapters instead of all weights")
     ap.add_argument("--lora-r", type=int, default=32)
+    ap.add_argument("--timestamps", action="store_true",
+                    help="train with timestamp tokens, which Whisper's long-form decoding needs")
     ap.add_argument("--out", default="checkpoints/whisper-small-kk")
     ap.add_argument("--resume", action="store_true", help="continue from the last checkpoint in --out")
     args = ap.parse_args()
@@ -66,8 +73,11 @@ def main():
         args.lr = 1e-3 if args.lora else 1e-5
     if args.lora and args.out == "checkpoints/whisper-small-kk":
         args.out = "checkpoints/whisper-small-kk-lora"
+    if args.timestamps and args.out == "checkpoints/whisper-small-kk":
+        args.out = "checkpoints/whisper-small-kk-ts"
 
-    processor = WhisperProcessor.from_pretrained(args.model, language="kazakh", task="transcribe")
+    processor = WhisperProcessor.from_pretrained(args.model, language="kazakh", task="transcribe",
+                                                 predict_timestamps=args.timestamps)
     model = WhisperForConditionalGeneration.from_pretrained(args.model)
     model.generation_config.language = "kazakh"
     model.generation_config.task = "transcribe"
@@ -118,8 +128,8 @@ def main():
             dataloader_num_workers=2,
             report_to=[],
         ),
-        train_dataset=FleursKK(train, processor),
-        eval_dataset=FleursKK(val, processor),
+        train_dataset=FleursKK(train, processor, args.timestamps),
+        eval_dataset=FleursKK(val, processor, args.timestamps),
         data_collator=lambda b: collate(b, processor),
         compute_metrics=compute_metrics,
         processing_class=processor,
@@ -138,6 +148,7 @@ def main():
 
     summary = {
         "base_model": args.model, "lora": args.lora, "lora_r": args.lora_r if args.lora else None,
+        "timestamps": args.timestamps,
         "train_utts": len(train), "val_utts": len(val),
         "epochs": args.epochs, "max_steps": args.max_steps, "lr": args.lr, "out": args.out,
         "batch_size": args.batch_size, "grad_accum": args.grad_accum,

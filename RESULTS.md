@@ -206,7 +206,7 @@ utterances ≤ 30 s, which is the number the training loop reports.
 4. **Fine-tuning on short clips damages long-form decoding.** On the 14 utterances above 30 s, CER gets *worse* than the
    base model (0.599 → 0.741) even though WER improves (1.334 → 0.791): the model repeats text (681 characters of
    hypothesis against a 356-character reference). Training used 30 s clips without timestamp tokens, which Whisper's
-   sequential long-form algorithm relies on. Training with timestamps, or chunking long audio, is the standard fix.
+   sequential long-form algorithm relies on. Training with timestamps, or chunking long audio, is the standard fix — but phase 8 shows that the simple form of timestamp training does not help here.
 5. **The laptop is sufficient for this scale of experiment**: 8 epochs on 11.8 h in ~70 minutes within 5.9 GB of VRAM,
    with the fine-tuned model still running at RTF 0.010 on the GPU.
 
@@ -368,3 +368,44 @@ attributed to LoRA itself. This phase repeats the LoRA run at 1e-4 and 3e-4, eve
 - The comparison uses the best checkpoint per run by Kazakh validation WER, which favours Kazakh accuracy over
   retention by construction; selecting on a multilingual criterion would move every point.
 - Kazakh was not re-tested on KSC for the two new runs.
+
+## Phase 8: training with timestamp tokens — a failed fix (negative result)
+
+Phase 3 found that fine-tuning on clips shorter than 30 s damages Whisper's sequential long-form decoding, and named
+timestamp-aware training as the standard fix. This phase tried it: identical data and schedule, but every transcript
+is wrapped as `<|0.00|>text<|duration|>` and the tokenizer runs in timestamp mode (no `<|notimestamps|>` token).
+Training cost was unchanged (48 min, 5.8 GB VRAM) and validation WER matched the phase 3 run almost exactly
+(0.2235 vs 0.2237), so the model learned the text just as well.
+
+| model | FLEURS kk, all 856 | short, 842 utt. ≤30 s | long, 14 utt. >30 s | hypothesis/reference length, long |
+|---|---|---|---|---|
+| whisper-small, zero-shot | 0.770 | 0.748 (CER 0.246) | 1.335 (CER 0.599) | 1.46× |
+| fine-tuned, no timestamps (phase 3) | **0.238** | **0.216** (CER 0.047) | 0.791 (CER 0.741) | 1.77× |
+| fine-tuned, with timestamps | 0.260 | 0.240 (CER 0.052) | **0.775** (CER 0.768) | 1.86× |
+
+Russian and English are unaffected by the change (0.200 / 0.107 vs 0.210 / 0.106 for phase 3).
+
+### Findings (phase 8)
+
+1. **The fix did not work.** Long-utterance WER moved from 0.791 to 0.775, CER got *worse* (0.741 → 0.768) and the
+   hypotheses grew longer relative to the reference (1.77× → 1.86×). Timestamp-aware training in this form does not
+   restore long-form decoding.
+2. **It also cost short-form accuracy**: 0.240 vs 0.216 on the 842 utterances under 30 s, i.e. +2.4 points for no
+   benefit, which is why overall Kazakh WER rises to 0.260.
+3. **The failure mode is a repetition loop inside the second window**, not duplicated text: the model emits
+   "және" ("and") dozens of times before recovering and finishing the sentence correctly. The generated text contains
+   no timestamp markup, so decoding strips it as expected.
+4. **Likely cause: the training examples were too easy.** Every example was a complete utterance spanning
+   `<|0.00|>` to its own duration, so the model never saw a window that *begins* mid-sentence — which is exactly what
+   the second window of a long-form decode looks like. Whisper was originally trained on 30 s windows cut from long
+   recordings, with partial segments at both edges.
+5. **What to try instead:** build training windows by concatenating consecutive utterances to ~30 s with their real
+   segment boundaries (including truncated segments at the edges), or side-step the issue at inference by chunking
+   long audio with overlap instead of relying on sequential long-form decoding.
+
+### Limitations (phase 8)
+
+- One recipe, one run. The negative result rules out this simple form of timestamp training, not timestamp-aware
+  training in general.
+- The long-utterance subset is 14 utterances out of 856, so the long-form numbers are noisy; they are reported as
+  an indicator, not as a precise measurement.
