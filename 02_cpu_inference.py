@@ -20,8 +20,15 @@ from faster_whisper import WhisperModel
 from common import audio_seconds, load_fleurs, normalize, score
 
 
+def short_name(name):
+    base = os.path.basename(name.rstrip("/"))
+    if base in ("best", "final"):  # a local checkpoint dir: name it after the run
+        base = os.path.basename(os.path.dirname(name.rstrip("/"))) + "-" + base
+    return base
+
+
 def convert(hf_name, quant):
-    out = f"models/ct2/{os.path.basename(hf_name.rstrip('/'))}-{quant}"
+    out = f"models/ct2/{short_name(hf_name)}-{quant}"
     if not os.path.exists(os.path.join(out, "model.bin")):
         subprocess.run(["ct2-transformers-converter", "--model", hf_name, "--output_dir", out,
                         "--quantization", quant, "--copy_files", "tokenizer.json",

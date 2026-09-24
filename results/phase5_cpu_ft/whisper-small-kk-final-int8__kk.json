@@ -1,0 +1,19 @@
+{
+  "model": "checkpoints/whisper-small-kk/final",
+  "engine": "faster-whisper/ctranslate2",
+  "compute_type": "int8",
+  "lang": "kk",
+  "split": "test",
+  "n_utts": 856,
+  "audio_hours": 3.835,
+  "wer": 0.23511785856971634,
+  "cer": 0.05694104718352299,
+  "rtf": 0.10045861148572977,
+  "wall_s": 1386.756792188,
+  "disk_mb": 253.205815,
+  "device": "cpu",
+  "cpu_threads": 8,
+  "batch_size": 1,
+  "decoding": "greedy (beam_size=1, temperature=0, no fallback)",
+  "forced_language": true
+}
