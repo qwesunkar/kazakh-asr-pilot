@@ -1,0 +1,66 @@
+{
+  "whisper-small zero-shot": {
+    "total_word_errors": 11560,
+    "substitutions_%": 80.6,
+    "deletions_%": 8.1,
+    "insertions_%": 11.3,
+    "substitution_types_%": {
+      "different word": 63.1,
+      "one character off (other)": 24.0,
+      "same stem, different ending": 5.5,
+      "Kazakh letter replaced by Russian look-alike": 3.3,
+      "number format (digits vs words)": 2.8,
+      "latin-script word": 1.3
+    },
+    "utterances_exactly_correct_%": 0.0,
+    "utterances_correct_ignoring_word_boundaries_%": 0.0
+  },
+  "whisper-small fine-tuned": {
+    "total_word_errors": 3567,
+    "substitutions_%": 75.1,
+    "deletions_%": 8.8,
+    "insertions_%": 16.1,
+    "substitution_types_%": {
+      "one character off (other)": 43.7,
+      "different word": 37.4,
+      "same stem, different ending": 9.4,
+      "number format (digits vs words)": 4.2,
+      "latin-script word": 3.1,
+      "Kazakh letter replaced by Russian look-alike": 2.2
+    },
+    "utterances_exactly_correct_%": 7.6,
+    "utterances_correct_ignoring_word_boundaries_%": 11.1
+  },
+  "whisper-large-v3-turbo": {
+    "total_word_errors": 3119,
+    "substitutions_%": 79.1,
+    "deletions_%": 6.6,
+    "insertions_%": 14.3,
+    "substitution_types_%": {
+      "one character off (other)": 43.0,
+      "different word": 32.9,
+      "number format (digits vs words)": 8.4,
+      "same stem, different ending": 8.1,
+      "Kazakh letter replaced by Russian look-alike": 3.9,
+      "latin-script word": 3.7
+    },
+    "utterances_exactly_correct_%": 8.3,
+    "utterances_correct_ignoring_word_boundaries_%": 10.7
+  },
+  "mms-1b-all": {
+    "total_word_errors": 2156,
+    "substitutions_%": 85.0,
+    "deletions_%": 10.3,
+    "insertions_%": 4.7,
+    "substitution_types_%": {
+      "one character off (other)": 48.6,
+      "different word": 27.7,
+      "same stem, different ending": 7.5,
+      "number format (digits vs words)": 7.0,
+      "latin-script word": 6.2,
+      "Kazakh letter replaced by Russian look-alike": 3.0
+    },
+    "utterances_exactly_correct_%": 16.6,
+    "utterances_correct_ignoring_word_boundaries_%": 19.5
+  }
+}

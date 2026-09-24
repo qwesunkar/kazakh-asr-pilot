@@ -449,3 +449,39 @@ fine-tuned 0.238 [0.218, 0.262], large-v3-turbo 0.208 [0.198, 0.219], mms-1b-all
    claimed informally.
 6. **Small subsets cannot settle anything.** The 14 long Kazakh utterances give an interval ±0.29 WER wide, so no
    conclusion about long-form behaviour can rest on them; that is a sample-size limit, not a modelling question.
+
+## Phase 10: what kind of Kazakh errors remain
+
+`error_analysis_kk.py` re-reads the saved per-utterance outputs (no GPU, no model) and classifies every word error
+on FLEURS kk test. Substitutions are bucketed by comparing the reference and hypothesis word.
+
+| | zero-shot small | fine-tuned small | large-v3-turbo | mms-1b-all |
+|---|---|---|---|---|
+| word errors (total) | 11 559 | 3 567 | 3 119 | 2 156 |
+| substitutions / deletions / insertions | 81 / 8 / 11% | 75 / 9 / 16% | 79 / 7 / 14% | 85 / 10 / 5% |
+| **of substitutions:** one character off | 24.0% | 43.7% | 43.0% | 48.6% |
+| same stem, different ending | 5.5% | 9.4% | 8.1% | 7.5% |
+| Kazakh letter → Russian look-alike | 3.3% | 2.2% | 3.9% | 3.0% |
+| number format (digits vs words) | 2.8% | 4.2% | 8.4% | 7.0% |
+| Latin-script word | 1.3% | 3.1% | 3.7% | 6.2% |
+| **different word** | **63.1%** | **37.4%** | **32.9%** | **27.7%** |
+| utterances transcribed exactly | 0.0% | 7.6% | 8.3% | 16.6% |
+| …ignoring word boundaries | 0.0% | 11.1% | 10.7% | 19.5% |
+
+### Findings (phase 10)
+
+1. **Fine-tuning changes the kind of error, not only the amount.** For the zero-shot model, 63% of substitutions are a
+   completely different word — it is guessing. After fine-tuning that falls to 37%, while "one character off" rises
+   from 24% to 44%: the model now hears the word and misspells it. Roughly **55% of its substitutions are near
+   misses** (one character, or the same stem with a different ending).
+2. **This is why Kazakh CER is so much lower than WER** (0.072 vs 0.238): in an agglutinative language one wrong
+   character inside a long word costs a whole word in WER, but almost nothing in CER. Whether that matters depends on
+   the application — for search or subtitles it usually does not, for verbatim transcription it does.
+3. **Kazakh-specific letters are not the problem.** Confusions of ә/а, қ/к, ң/н, ө/о, ұ/у, ү/у, ғ/г, і/и, һ/х account
+   for only 2–4% of substitutions in every model, and fine-tuning reduces them (3.3% → 2.2%). The intuition that a
+   Cyrillic-adjacent low-resource language mainly suffers from its extra letters is not supported here.
+4. **Whole utterances are still rarely perfect**: 7.6% for the fine-tuned model, 8.3% for large-v3-turbo, 16.6% for
+   mms-1b-all. Allowing wrong word boundaries adds 3–4 points, so a small but real share of errors is only about
+   where the spaces go ("жұмыс істеген" vs "жұмысістеген").
+5. **Insertions grow after fine-tuning** (11% → 16% of errors), consistent with the repetition loops seen in phase 3
+   on long audio; mms-1b-all, which has no language model to run away with, inserts least (5%).
