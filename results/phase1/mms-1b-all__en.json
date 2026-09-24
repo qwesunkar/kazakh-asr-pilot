@@ -1,0 +1,20 @@
+{
+  "model": "facebook/mms-1b-all",
+  "lang": "en",
+  "split": "test",
+  "n_utts": 647,
+  "audio_hours": 1.774,
+  "wer": 0.12782161234991424,
+  "cer": 0.0459519382062652,
+  "rtf": 0.005218039624132764,
+  "wall_s": 33.332315314997686,
+  "peak_vram_alloc_gb": 3.489925632,
+  "peak_vram_reserved_gb": 4.779409408,
+  "params_m": 964.84585,
+  "device": "NVIDIA GeForce RTX 5060 Laptop GPU",
+  "dtype": "float16",
+  "decoding": "ctc-greedy",
+  "batch_size": 4,
+  "n_longform_gt30s": 0,
+  "forced_language": true
+}

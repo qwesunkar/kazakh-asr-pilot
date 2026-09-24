@@ -1,0 +1,20 @@
+{
+  "model": "openai/whisper-tiny",
+  "lang": "kk",
+  "split": "test",
+  "n_utts": 856,
+  "audio_hours": 3.835,
+  "wer": 3.1043414569183647,
+  "cer": 1.6917916267857775,
+  "rtf": 0.005808496206387977,
+  "wall_s": 80.1819918419933,
+  "peak_vram_alloc_gb": 0.326684672,
+  "peak_vram_reserved_gb": 0.444596224,
+  "params_m": 37.76064,
+  "device": "NVIDIA GeForce RTX 5060 Laptop GPU",
+  "dtype": "float16",
+  "decoding": "greedy (num_beams=1)",
+  "batch_size": 16,
+  "n_longform_gt30s": 14,
+  "forced_language": true
+}
