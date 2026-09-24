@@ -1,0 +1,265 @@
+# Multilingual ASR pilot: Kazakh vs Russian vs English
+
+Pilot for the TU Wien CVL master's topic "Multilingual Speech Recognition for Low-Resource Languages".
+Question: how well do off-the-shelf multilingual ASR models transcribe Kazakh (low-resource)
+compared with Russian and English, and what does it cost to run them locally?
+
+## Summary
+
+Four phases on one laptop (RTX 5060 Laptop, 8 GB VRAM): a zero-shot baseline on FLEURS, CPU inference with int8
+quantization, Kazakh fine-tuning of whisper-small, and an out-of-domain check on the Kazakh Speech Corpus.
+Every number below comes from a full test set with identical normalization; per-utterance outputs are in `results/`.
+
+| model | params | Kazakh WER, FLEURS test | Kazakh WER, KSC test (out of domain) |
+|---|---|---|---|
+| whisper-tiny | 38 M | 3.104 (unusable) | — |
+| whisper-base | 73 M | 1.157 (unusable) | — |
+| whisper-small | 242 M | 0.770 | 0.863 |
+| **whisper-small fine-tuned on 11.8 h Kazakh** | 242 M | **0.238** (−69% rel.) | 0.469 (−46% rel.) |
+| whisper-large-v3-turbo | 809 M | 0.208 | **0.286** |
+| mms-1b-all | 965 M | **0.144** | 0.297 |
+
+For reference, Russian and English WER of zero-shot whisper-small on FLEURS: 0.110 and 0.071.
+
+1. **Model size decides whether Kazakh works at all.** Below whisper-small the models do not transcribe Kazakh, they
+   hallucinate: 60% of whisper-tiny's Kazakh outputs are repetition loops, which is why its WER exceeds 1. The same
+   models handle Russian and English (WER 0.07–0.36), so the failure is about the language, not the model family.
+2. **11.8 h of Kazakh fine-tuning beats 3.3× more parameters in domain.** Fine-tuned whisper-small (242 M) reaches
+   0.238 against zero-shot large-v3-turbo's 0.208 (809 M), on a laptop, in 70 minutes of training.
+3. **In-domain numbers overstate the gain by a third.** On KSC the same fine-tuning gives −46% instead of −69%, and the
+   zero-shot large model wins again (0.286 vs 0.469). Kazakh was learned, general robustness was not.
+4. **MMS's apparent Kazakh lead is largely in-domain.** Best on FLEURS (0.144), it drops to 0.297 on KSC, level with
+   turbo; its training data includes FLEURS train.
+5. **Fine-tuning one language costs the others.** Russian WER 0.110 → 0.210, English 0.071 → 0.106 after full
+   fine-tuning — the argument for adapter- or LoRA-based tuning as the next step.
+6. **Local CPU inference is practical and int8 is nearly free.** int8 costs at most +0.4 WER points while running
+   2.1–2.9× faster and taking 252 MB instead of 971 MB; one hour of speech costs 6–12 minutes of CPU time.
+
+Measurement pitfalls that changed results, all documented in the phase sections: Whisper silently truncates audio
+over 30 s; Whisper's `BasicTextNormalizer` deletes text in brackets (11% of FLEURS references); FLEURS Russian mixes
+`ё`/`е`; RTF measured on 50 utterances underestimated the full-set value by 60%; fine-tuning on short clips damaged
+long-form decoding; and number formatting (digits vs words) moves WER by 1–4 points on KSC.
+
+## Setup
+
+| | |
+|---|---|
+| Hardware | Laptop, NVIDIA RTX 5060 Laptop GPU (8 GB, Blackwell sm_120), AMD Ryzen 7 260 (8 cores / 16 threads), 14 GB RAM |
+| Software | Ubuntu 26.04, Python 3.12.14, torch 2.11.0+cu128, transformers 5.17.0, datasets 5.0.1, jiwer 4.0.0 (full pins in `requirements.txt`, environment in `results/env.json`) |
+| Data | FLEURS (`google/fleurs`, parquet), full **test** splits: kk_kz 856 utt. / 3.83 h, ru_ru 775 / 2.50 h, en_us 647 / 1.77 h |
+| References | `raw_transcription` field, normalized with the same function as hypotheses |
+| Decoding | Language forced (no language ID). Whisper: greedy (`num_beams=1`), fp16. MMS: CTC greedy, fp16, language adapter kaz/rus/eng |
+| Metrics | Corpus-level WER and CER (jiwer: total edits / total reference words or characters); RTF = decoding wall time / audio duration (excl. data loading and one untimed warm-up); peak VRAM = `torch.cuda.max_memory_allocated` |
+
+**Normalization** (`common.normalize`, identical for references and hypotheses in every phase):
+NFKC → lowercase → `ё`→`е` → every Unicode punctuation/symbol character (categories P\*, S\*) replaced by a space → whitespace collapsed.
+Kazakh letters (ә ғ қ ң ө ұ ү һ і) and diacritics are kept. Two deliberate deviations from Whisper's `BasicTextNormalizer`:
+
+- It deletes text in brackets. 10–12% of FLEURS test references contain spoken words in parentheses
+  (e.g. "(dividing by twelve to obtain the simplest whole-number ratio)"), so it would remove those words from the evaluation.
+- `ё`→`е`: FLEURS Russian references use both spellings inconsistently. Without the mapping Russian WER is 0.6–1.0 points higher for every model (e.g. large-v3-turbo 0.054 vs 0.044).
+
+**Utterances longer than 30 s** (14 in kk, 1 in ru, 0 in en) are decoded with Whisper's sequential long-form mode, one at a time. The default feature extractor silently truncates them to 30 s. MMS (CTC) takes audio of any length.
+
+## Phase 1: zero-shot baseline (GPU)
+
+![WER by model and language](results/wer_by_model_lang.png)
+
+| model | WER kk | WER ru | WER en | CER kk | CER ru | CER en |
+|---|---|---|---|---|---|---|
+| whisper-tiny | 3.104 | 0.359 | 0.144 | 1.692 | 0.108 | 0.064 |
+| whisper-base | 1.157 | 0.220 | 0.115 | 0.510 | 0.058 | 0.056 |
+| whisper-small | 0.770 | 0.110 | 0.071 | 0.259 | 0.030 | 0.032 |
+| whisper-large-v3-turbo | 0.208 | 0.044 | 0.049 | 0.073 | 0.013 | 0.021 |
+| mms-1b-all | **0.144** | 0.189 | 0.128 | **0.030** | 0.039 | 0.046 |
+
+| model | params (M) | RTF kk | RTF ru | RTF en | peak VRAM alloc (GB) | batch |
+|---|---|---|---|---|---|---|
+| whisper-tiny | 38 | 0.0058 | 0.0017 | 0.0014 | 0.33 | 16 |
+| whisper-base | 73 | 0.0053 | 0.0020 | 0.0021 | 0.59 | 16 |
+| whisper-small | 242 | 0.0089 | 0.0042 | 0.0040 | 1.74 | 16 |
+| whisper-large-v3-turbo | 809 | 0.0096 | 0.0107 | 0.0120 | 2.39 | 16 |
+| mms-1b-all | 965 | 0.0057 | 0.0053 | 0.0052 | 4.23 | 4 |
+
+Share of "runaway" hypotheses (normalized hypothesis more than 1.5× the reference length, i.e. repetition loops or hallucinations):
+
+| model | kk | ru | en |
+|---|---|---|---|
+| whisper-tiny | 60.2% | 0.3% | 0.0% |
+| whisper-base | 7.5% | 0.0% | 0.2% |
+| whisper-small | 2.5% | 0.0% | 0.0% |
+| whisper-large-v3-turbo | 0.7% | 0.0% | 0.0% |
+| mms-1b-all | 0.0% | 0.0% | 0.0% |
+
+Per-utterance references and hypotheses (raw and normalized) are in `results/phase1/<model>__<lang>.csv`, run metadata in the matching `.json`.
+The 50-utterance smoke test (first 50 test utterances per language, same code) is in `results/phase1_smoke/`.
+
+### Findings (phase 1)
+
+1. **Small Whisper models do not work for Kazakh.** WER > 1 for tiny and base means more errors than reference words. 60% of whisper-tiny's Kazakh outputs are repetition loops. For Russian and English the same models are usable (WER 0.07–0.36), so the gap is language-specific, not model-specific.
+2. **The Kazakh gap narrows sharply with scale.** Kazakh WER drops 3.10 → 1.16 → 0.77 → 0.21 from tiny to large-v3-turbo. The ratio to Russian WER stays large (whisper-small 7×, turbo 4.7×).
+3. **MMS-1b-all is the best Kazakh model (WER 0.144, CER 0.030)** but the worst of the larger models on Russian and English. Caveat: MMS-1b-all was fine-tuned on data that includes the FLEURS *train* split (per its model card), so on FLEURS it is in-domain. The test sentences themselves were not in its training data, but its advantage here may not transfer to other Kazakh domains.
+4. **Kazakh CER is much lower than WER** for all usable models (turbo 0.073 vs 0.208). Many word errors are therefore partial: only a few characters are wrong inside long agglutinative words, yet WER counts the whole word as an error.
+5. **GPU inference is not the bottleneck.** All models run 80–700× faster than real time on the laptop GPU and use at most 4.2 GB VRAM.
+
+### Limitations (phase 1)
+
+- **Numbers are not normalized.** 19–20% of references contain digits. Whisper often writes Kazakh numbers as words ("10 мың" vs "10 000"), and MMS writes no digits in English. On utterances without digits, WER is 0.4–3 points lower. For example, turbo kk: 0.208 overall vs 0.180 without digits, and MMS en: 0.128 vs 0.110.
+- Latin-script names in Russian references (e.g. "civilis") are sometimes transliterated to Cyrillic by the models and counted as errors.
+- Greedy decoding only. Beam search and temperature fallback would likely reduce Whisper's repetition loops, but they were not evaluated.
+- RTF depends on batch size (16 for Whisper, 4 for MMS to stay within 8 GB), padding and long-form decoding. Kazakh RTF for small Whisper models is higher mainly because of repetition loops and the 14 long-form utterances. RTFs are indicative, from a single run.
+- One run per configuration, no confidence intervals.
+
+### Issues found during phase 1 (and fixed)
+
+- The first smoke run truncated the 33.8 s Russian utterance to 30 s. whisper-large-v3-turbo then produced a repetition loop on it, and its smoke Russian WER was 0.163 instead of 0.054 (both before the ё→е mapping). Fixed with long-form decoding before the full run. After the fix, that utterance is transcribed exactly.
+- `results/phase1/whisper-base__ru.csv` was truncated when an in-place rescoring run was interrupted. whisper-base was re-run on Russian with the same code. The re-run gave exactly the WER predicted from the lost hypotheses (0.2203), so decoding is deterministic here. Rescoring now writes atomically.
+
+## Phase 2: local CPU inference, float32 vs int8
+
+Engine: **faster-whisper 1.2.1 / CTranslate2 4.8.2**. Chosen over whisper.cpp because it installs into the venv with pip
+(no system-level build), reads the same Hugging Face checkpoints, and converts a fine-tuned model with one command,
+so phase 3 can reuse this path. The HF checkpoint is converted twice (`ct2-transformers-converter --quantization float32|int8`),
+so the reported disk size is the size of the weights actually used.
+
+Same data, same normalization and the same forced language as phase 1. Decoding: greedy (`beam_size=1`), `temperature=0`
+with no fallback, no VAD, no conditioning on previous text, one utterance at a time (batch size 1), 8 CPU threads.
+Model: whisper-small only — see limitations.
+
+| run | WER kk | WER ru | WER en | CER kk | CER ru | CER en |
+|---|---|---|---|---|---|---|
+| whisper-small, GPU fp16, transformers (phase 1) | 0.770 | 0.110 | 0.071 | 0.259 | 0.030 | 0.032 |
+| whisper-small, CPU float32 | 0.748 | 0.111 | 0.083 | 0.226 | 0.030 | 0.034 |
+| whisper-small, CPU int8 | 0.752 | 0.112 | 0.082 | 0.227 | 0.030 | 0.034 |
+
+| run | RTF kk | RTF ru | RTF en | weights on disk | wall time for all 8.1 h of audio |
+|---|---|---|---|---|---|
+| whisper-small, GPU fp16 (phase 1) | 0.009 | 0.004 | 0.004 | n/a (fp32 checkpoint, cast to fp16 in memory; 1.74 GB peak VRAM) | 3 min |
+| whisper-small, CPU float32 | 0.272 | 0.483 | 0.409 | 971 MB | 178 min |
+| whisper-small, CPU int8 | 0.095 | 0.174 | 0.198 | 252 MB | 69 min |
+
+### Findings (phase 2)
+
+1. **int8 quantization is close to free.** WER changes by at most +0.4 points (kk 0.748 → 0.752, ru 0.111 → 0.112, en 0.083 → 0.082, i.e. English even improves slightly), CER by at most +0.13 points. There is no sign that the low-resource language suffers more from quantization than the high-resource ones.
+2. **It buys 2.1–2.9× speed and 3.9× disk.** RTF drops from 0.272/0.483/0.409 to 0.095/0.174/0.198 (kk/ru/en), and the model shrinks from 971 MB to 252 MB. Transcribing 8.1 hours of audio takes 69 minutes instead of 178.
+3. **A CPU-only laptop is enough for offline use of whisper-small.** At int8, one hour of speech costs 6–12 minutes of CPU time, so real-time transcription with a single stream has roughly 5–10× headroom. The GPU is still 10–50× faster than int8 on CPU (RTF 0.004–0.009), the smallest gap being Kazakh.
+4. **Changing the engine matters about as much as quantization.** CTranslate2 float32 vs transformers fp16 differs by −2.2 points WER on Kazakh (0.770 → 0.748) and +1.2 on English (0.071 → 0.083). The English difference comes almost entirely from **one** utterance where CTranslate2 falls into a repetition loop and adds 191 word errors out of 14575 reference words; without it CTranslate2 would be slightly better than transformers on English too. Kazakh improves because CTranslate2 produces fewer runaway hypotheses (1.4% vs 2.5%).
+5. **RTF measured on a 50-utterance subset underestimates the full-set RTF**, by up to 60% here (ru float32: 0.304 on the first 50 utterances vs 0.483 on all 775). Re-measuring the subset after the full run reproduced 0.304 exactly, so this is a property of the sample, not of the machine (CPU temperature stayed at 37 °C, no throttling).
+
+### Limitations (phase 2)
+
+- Only whisper-small was run on CPU. large-v3-turbo would have needed an estimated 7–9 h (float32) plus 2.5–5 h (int8) on the full test sets, which did not fit the pilot's time budget. The quantization question is answered on the model that phase 3 fine-tunes.
+- GPU and CPU numbers come from different engines (transformers vs CTranslate2), so the GPU row is a reference point, not a controlled precision comparison. A clean fp32-vs-int8 comparison exists only inside CTranslate2, which is what finding 1 is based on.
+- 8 CPU threads (physical cores) were used throughout; 16 threads were not tested, so the CPU RTFs are not a tuned best case.
+- int8 here means CTranslate2's default dynamic int8 quantization of the weights; activations stay in float32.
+
+## Phase 3: Kazakh fine-tuning of whisper-small
+
+**Data.** FLEURS kk_kz **train** (3200 utt. / 11.8 h) for training, kk_kz **validation** (369 / 1.5 h) for checkpoint
+selection. The test split was never used for training or model selection. 11 train and 6 validation utterances longer
+than 30 s were dropped: their audio would be truncated while the transcript stayed complete, which teaches the model to
+invent text. Kazakh Common Voice (moved to Mozilla Data Collective in October 2025, account required) and ISSAI's KSC
+(OpenSLR 102, CC BY 4.0, 19 GB, request form) were not used in this pilot; FLEURS train needed no additional download.
+
+**Training.** whisper-small, 8 epochs = 1600 steps, batch 8 × grad-accum 2 (effective 16), lr 1e-5, 100 warmup steps,
+bf16, gradient checkpointing, greedy generation for evaluation. Peak VRAM 5.9 GB of 8 GB. Wall time ≈ 70 min for
+8 epochs including 8 validation passes (see "issues" below: the run was interrupted and resumed, and steps 1200–1339
+were computed twice). Best checkpoint by validation WER: **epoch 7**.
+
+Validation WER per epoch: 0.329 → 0.268 → 0.246 → 0.239 → 0.233 → 0.225 → **0.224** → 0.226.
+Validation loss stopped improving after epoch 3 while WER kept falling slowly, so selection was by WER, not by loss.
+
+### Results on FLEURS test (never seen in training)
+
+| model | WER kk | WER ru | WER en | CER kk | CER ru | CER en |
+|---|---|---|---|---|---|---|
+| whisper-small (zero-shot, phase 1) | 0.770 | 0.110 | 0.071 | 0.259 | 0.030 | 0.032 |
+| **whisper-small fine-tuned on kk** | **0.238** | 0.210 | 0.106 | **0.072** | 0.068 | 0.045 |
+| whisper-large-v3-turbo (zero-shot, reference) | 0.208 | 0.044 | 0.049 | 0.073 | 0.013 | 0.021 |
+| mms-1b-all (zero-shot, reference) | 0.144 | 0.189 | 0.128 | 0.030 | 0.039 | 0.046 |
+
+Kazakh, split by utterance length (the test set has 842 utterances ≤ 30 s and 14 longer ones):
+
+| model | WER ≤30 s | CER ≤30 s | WER >30 s | CER >30 s |
+|---|---|---|---|---|
+| whisper-small zero-shot | 0.748 | 0.246 | 1.334 | 0.599 |
+| whisper-small fine-tuned | **0.217** | **0.047** | 0.791 | 0.741 |
+
+Base vs fine-tuned on the kk **validation** split: 0.762 → 0.267 WER (all 369 utterances), or 0.224 on the 363
+utterances ≤ 30 s, which is the number the training loop reports.
+
+### Findings (phase 3)
+
+1. **Fine-tuning on 11.8 h cuts Kazakh WER by 69% relative** (0.770 → 0.238; CER 0.259 → 0.072). On utterances under
+   30 s, which is what training saw, WER drops to 0.217 — a 71% relative reduction.
+2. **A fine-tuned 242 M model beats zero-shot large-v3-turbo per parameter, and nearly matches it outright**
+   (0.238 vs 0.208 with 3.3× fewer parameters). It does not reach mms-1b-all (0.144), which was itself trained on
+   FLEURS train and is 4× larger.
+3. **Catastrophic forgetting is real but moderate**: Russian 0.110 → 0.210 (1.9×) and English 0.071 → 0.106 (1.5×). Full fine-tuning of all weights on a single language is the direct cause; a thesis would compare this against
+   LoRA or adapter-based tuning, which is what MMS does per language.
+4. **Fine-tuning on short clips damages long-form decoding.** On the 14 utterances above 30 s, CER gets *worse* than the
+   base model (0.599 → 0.741) even though WER improves (1.334 → 0.791): the model repeats text (681 characters of
+   hypothesis against a 356-character reference). Training used 30 s clips without timestamp tokens, which Whisper's
+   sequential long-form algorithm relies on. Training with timestamps, or chunking long audio, is the standard fix.
+5. **The laptop is sufficient for this scale of experiment**: 8 epochs on 11.8 h in ~70 minutes within 5.9 GB of VRAM,
+   with the fine-tuned model still running at RTF 0.010 on the GPU.
+
+### Limitations (phase 3)
+
+- FLEURS train and FLEURS test are the same domain (read news-style sentences, similar recording conditions), so part of
+  the gain is domain adaptation rather than better Kazakh in general. Phase 4 below separates the two by evaluating on KSC.
+- One training run, one hyper-parameter setting. No learning-rate or epoch sweep, no seed variation.
+- Forgetting was measured only on ru and en, and only on FLEURS.
+- The fine-tuned model was not run through phase 2's CPU/int8 path, so its quantized quality is unknown.
+
+### Issues found during phase 3 (and fixed)
+
+- The first training process was killed during the epoch-7 evaluation when the terminal session ended (`nohup` did not
+  protect it). Training resumed from the epoch-6 checkpoint with `--resume`, re-computing steps 1200–1339; the relaunch
+  used `setsid` to fully detach. Because the resumed run restores the trainer state, the per-epoch history above is complete.
+- After `save_model`, `generation_config.eos_token_id` was saved as `[50257]` instead of `50257`, which crashes Whisper's
+  long-form decoding (`TypeError: slice indices must be integers`). The training script now normalizes it before saving.
+
+## Phase 4: out-of-domain check on the Kazakh Speech Corpus
+
+Phase 3's main limitation is that FLEURS train and FLEURS test share a domain, so a gain there can be domain adaptation
+rather than better Kazakh. This phase re-runs the Kazakh models on a different corpus, changing nothing else.
+
+**Data.** ISSAI Kazakh Speech Corpus (KSC), **test** split: 3334 utterances, ~7.6 h, 16 kHz FLAC.
+The corpus is CC BY 4.0 (OpenSLR 102); the official archive is 19 GB behind a request form, so this evaluation reads the
+410 MB test parquet from a community mirror (`Shirali/ISSAI_KSC_335RS_v_1_1`) — unofficial, so provenance is not
+guaranteed, and a thesis should re-run this against the archive from ISSAI. No model in this report was trained on KSC.
+KSC references are already lowercase and unpunctuated and **spell numbers out as words**, the opposite of FLEURS.
+
+![Kazakh WER in domain vs out of domain](results/kk_wer_fleurs_vs_ksc.png)
+
+| model | WER FLEURS kk | WER KSC | CER FLEURS kk | CER KSC | WER KSC, digit-free hypotheses |
+|---|---|---|---|---|---|
+| whisper-small (zero-shot) | 0.770 | 0.863 | 0.259 | 0.353 | 0.851 (n=3091) |
+| whisper-small fine-tuned on FLEURS kk | 0.238 | 0.469 | 0.072 | 0.138 | 0.436 (n=2802) |
+| whisper-large-v3-turbo (zero-shot) | 0.208 | 0.286 | 0.073 | 0.100 | 0.275 (n=3275) |
+| mms-1b-all (zero-shot) | 0.144 | 0.297 | 0.030 | 0.085 | 0.253 (n=2838) |
+
+### Findings (phase 4)
+
+1. **The fine-tuning gain transfers, at about two thirds of its in-domain size.** Relative WER reduction over the base
+   model is 69% on FLEURS (0.770 → 0.238) and 46% on KSC (0.863 → 0.469). So the model did learn Kazakh, not only the
+   FLEURS reading style — but a single in-domain number overstates the gain by a wide margin.
+2. **MMS's lead was largely in-domain.** It is the best Kazakh model on FLEURS (0.144) but falls to 0.297 on KSC, level
+   with large-v3-turbo (0.286), which supports the caveat from phase 1: mms-1b-all was fine-tuned on FLEURS train.
+   By CER, MMS still leads (0.085 vs 0.100).
+3. **Out of domain, the 809 M zero-shot model beats the fine-tuned 242 M model** (0.286 vs 0.469), reversing the
+   near-parity seen on FLEURS (0.208 vs 0.238). Fine-tuning a small model on 11.8 h buys in-domain accuracy, not
+   general robustness.
+4. **Every model degrades on KSC**, including ones never tuned on FLEURS (turbo 0.208 → 0.286), so part of the drop is
+   KSC simply being harder (spontaneous-style recordings, varied devices) rather than a domain-transfer failure alone.
+5. **Number formatting costs 1–4 WER points here.** KSC spells numbers out; Whisper and MMS often emit digits
+   (fine-tuned model: 16% of hypotheses, MMS: 15%). On hypotheses containing no digits, WER drops from 0.469 to 0.436
+   (fine-tuned) and from 0.297 to 0.253 (MMS). This is a measurement artefact of the metric, not an acoustic error.
+
+### Limitations (phase 4)
+
+- The KSC copy is a community mirror, not the official ISSAI release; file-level equivalence was not verified.
+- KSC and FLEURS differ in more than domain (recording devices, speaking style, transcription conventions), so "out of
+  domain" here bundles several factors.
+- Only Kazakh was re-tested out of domain; forgetting on ru/en was measured on FLEURS only.
