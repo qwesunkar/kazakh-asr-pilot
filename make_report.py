@@ -54,7 +54,7 @@ for phase, d in df.groupby("phase"):
         print(d.pivot_table(index="model_short", columns="lang", values=metric).round(4).to_string())
 
 # Plot: zero-shot GPU runs (+ fine-tuned models once phase 3 exists)
-gpu = df[df.phase.isin(["phase1", "phase3"])]
+gpu = df[df.phase.isin(["phase1", "phase3", "phase6_lora"])]
 # Whisper models by size, non-Whisper reference (MMS) last
 models = list(gpu.sort_values(["model_short"]).assign(mms=gpu.model_short.str.contains("mms"))
               .sort_values(["mms", "params_m"]).model_short.drop_duplicates())
@@ -75,7 +75,7 @@ ax.set_xticks(x, models, rotation=15, ha="right")
 ax.set_ylim(0, WER_CAP + 0.15)
 ax.set_ylabel("WER (FLEURS test, lower is better)")
 ax.set_title("WER by model and language on FLEURS test (bars above 1.0 clipped, true value shown)\n"
-             "All zero-shot except whisper-small-kk-final, fine-tuned on Kazakh", fontsize=11)
+             "All zero-shot except the two models fine-tuned on Kazakh", fontsize=11)
 ax.yaxis.grid(True, color="#e5e5e5")
 ax.set_axisbelow(True)
 for s in ["top", "right"]:
@@ -84,10 +84,11 @@ ax.legend(frameon=False, ncol=len(langs), loc="upper right")
 fig.tight_layout()
 fig.savefig("results/wer_by_model_lang.png", dpi=150)
 # Second plot: Kazakh in-domain (FLEURS test) vs out-of-domain (KSC test)
-ksc = df[df.phase == "phase4_ksc"]
+ksc = df[df.phase.isin(["phase4_ksc", "phase6_lora_ksc"])]
 if len(ksc):
-    fl = df[(df.lang == "kk") & (df.phase.isin(["phase1", "phase3"]))].set_index("model_short").wer
-    names = [m for m in ["whisper-small", "whisper-small-kk-final", "whisper-large-v3-turbo", "mms-1b-all"]
+    fl = df[(df.lang == "kk") & (df.phase.isin(["phase1", "phase3", "phase6_lora"]))].set_index("model_short").wer
+    names = [m for m in ["whisper-small", "whisper-small-kk-final", "whisper-small-kk-lora-final",
+                         "whisper-large-v3-turbo", "mms-1b-all"]
              if m in set(ksc.model_short)]
     pairs = [("FLEURS test (read news sentences)", [fl[m] for m in names], "#2a78d6"),
              ("KSC test (out of domain)", [ksc.set_index("model_short").wer[m] for m in names], "#eb6834")]
@@ -102,7 +103,7 @@ if len(ksc):
     ax2.set_ylim(0, WER_CAP)
     ax2.set_ylabel("Kazakh WER (lower is better)")
     ax2.set_title("Kazakh WER in domain vs out of domain\n"
-                  "whisper-small-kk-final was fine-tuned on FLEURS kk train", fontsize=11)
+                  "-kk-final (full fine-tuning) and -kk-lora-final were trained on FLEURS kk train", fontsize=11)
     ax2.yaxis.grid(True, color="#e5e5e5")
     ax2.set_axisbelow(True)
     for sp in ["top", "right"]:

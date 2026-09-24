@@ -93,3 +93,24 @@ Training writes `results/phase3_training.json` (settings, per-epoch validation W
 
 .venv/bin/python make_report.py   # also writes results/kk_wer_fleurs_vs_ksc.png
 ```
+
+## Phase 5: the fine-tuned model on CPU (int8)
+
+```bash
+PATH="$PWD/.venv/bin:$PATH" .venv/bin/python 02_cpu_inference.py --models checkpoints/whisper-small-kk/final --quants int8 --langs kk --out results/phase5_cpu_ft
+```
+
+CTranslate2 expects `preprocessor_config.json` in the checkpoint; transformers 5 writes `processor_config.json`, so:
+
+```bash
+.venv/bin/python -c "from transformers import WhisperFeatureExtractor as F; F.from_pretrained('openai/whisper-small').save_pretrained('checkpoints/whisper-small-kk/final')"
+```
+
+## Phase 6: LoRA instead of full fine-tuning
+
+```bash
+setsid nohup .venv/bin/python 03_finetune_kk.py --lora --epochs 8 > phase6.log 2>&1 &   # ~48 min, 2.8 GB VRAM
+.venv/bin/python 01_zero_shot.py --models checkpoints/whisper-small-kk-lora/final --out results/phase6_lora
+.venv/bin/python 01_zero_shot.py --dataset ksc --langs kk --models checkpoints/whisper-small-kk-lora/final --out results/phase6_lora_ksc
+.venv/bin/python make_report.py
+```

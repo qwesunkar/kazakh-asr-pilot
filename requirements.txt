@@ -71,6 +71,7 @@ nvidia-nvtx-cu12==12.8.90
 onnxruntime==1.30.0
 packaging==26.3
 pandas==3.0.6
+peft==0.21.0
 pillow==12.3.0
 platformdirs==4.11.12
 pooch==1.9.0

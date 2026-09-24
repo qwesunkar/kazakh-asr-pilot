@@ -6,8 +6,9 @@ compared with Russian and English, and what does it cost to run them locally?
 
 ## Summary
 
-Four phases on one laptop (RTX 5060 Laptop, 8 GB VRAM): a zero-shot baseline on FLEURS, CPU inference with int8
-quantization, Kazakh fine-tuning of whisper-small, and an out-of-domain check on the Kazakh Speech Corpus.
+Six phases on one laptop (RTX 5060 Laptop, 8 GB VRAM): a zero-shot baseline on FLEURS, CPU inference with int8
+quantization, Kazakh fine-tuning of whisper-small, an out-of-domain check on the Kazakh Speech Corpus, the fine-tuned
+model under int8, and LoRA against full fine-tuning.
 Every number below comes from a full test set with identical normalization; per-utterance outputs are in `results/`.
 
 | model | params | Kazakh WER, FLEURS test | Kazakh WER, KSC test (out of domain) |
@@ -16,6 +17,7 @@ Every number below comes from a full test set with identical normalization; per-
 | whisper-base | 73 M | 1.157 (unusable) | — |
 | whisper-small | 242 M | 0.770 | 0.863 |
 | **whisper-small fine-tuned on 11.8 h Kazakh** | 242 M | **0.238** (−69% rel.) | 0.469 (−46% rel.) |
+| whisper-small, same data, LoRA r=32 | 3.5 M trained | 0.238 | 0.483 |
 | whisper-large-v3-turbo | 809 M | 0.208 | **0.286** |
 | mms-1b-all | 965 M | **0.144** | 0.297 |
 
@@ -30,10 +32,13 @@ For reference, Russian and English WER of zero-shot whisper-small on FLEURS: 0.1
    zero-shot large model wins again (0.286 vs 0.469). Kazakh was learned, general robustness was not.
 4. **MMS's apparent Kazakh lead is largely in-domain.** Best on FLEURS (0.144), it drops to 0.297 on KSC, level with
    turbo; its training data includes FLEURS train.
-5. **Fine-tuning one language costs the others.** Russian WER 0.110 → 0.210, English 0.071 → 0.106 after full
-   fine-tuning — the argument for adapter- or LoRA-based tuning as the next step.
+5. **Fine-tuning one language costs the others, and LoRA did not fix that.** Full fine-tuning moves Russian WER
+   0.110 → 0.210 and English 0.071 → 0.106. LoRA (3.5 M trainable parameters, half the VRAM) matches full fine-tuning
+   on Kazakh (0.238) but leaves Russian at 0.415 — worse, not better. The two recipes differ in learning rate by 100×,
+   so this is a finding about standard recipes, not about LoRA in isolation.
 6. **Local CPU inference is practical and int8 is nearly free.** int8 costs at most +0.4 WER points while running
-   2.1–2.9× faster and taking 252 MB instead of 971 MB; one hour of speech costs 6–12 minutes of CPU time.
+   2.1–2.9× faster and taking 252 MB instead of 971 MB; one hour of speech costs 6–12 minutes of CPU time. The
+   fine-tuned Kazakh model keeps its accuracy through quantization (0.235 int8 on CPU vs 0.238 fp16 on GPU).
 
 Measurement pitfalls that changed results, all documented in the phase sections: Whisper silently truncates audio
 over 30 s; Whisper's `BasicTextNormalizer` deletes text in brackets (11% of FLEURS references); FLEURS Russian mixes
@@ -263,3 +268,61 @@ KSC references are already lowercase and unpunctuated and **spell numbers out as
 - KSC and FLEURS differ in more than domain (recording devices, speaking style, transcription conventions), so "out of
   domain" here bundles several factors.
 - Only Kazakh was re-tested out of domain; forgetting on ru/en was measured on FLEURS only.
+
+## Phase 5: does the fine-tuning gain survive int8 on CPU?
+
+The fine-tuned model was converted with `ct2-transformers-converter --quantization int8` and run on Kazakh FLEURS test
+with phase 2's settings (greedy, batch 1, 8 CPU threads).
+
+| run | WER kk | CER kk | RTF | weights on disk |
+|---|---|---|---|---|
+| fine-tuned, GPU fp16, transformers (phase 3) | 0.238 | 0.072 | 0.010 | — |
+| fine-tuned, CPU int8, CTranslate2 | 0.235 | 0.057 | 0.100 | 253 MB |
+
+**Finding.** The gain survives quantization completely: WER 0.235 vs 0.238, and CER is *better* (0.057 vs 0.072), the
+same CTranslate2-vs-transformers effect measured in phase 2. A Kazakh ASR model tuned on a laptop ships as a 253 MB
+file that transcribes an hour of speech in six minutes of CPU time, with no GPU and no network.
+
+Note: `transformers` 5 saves the feature-extractor config as `processor_config.json`, while CTranslate2 expects
+`preprocessor_config.json`; the converter fails until that file is written into the checkpoint directory.
+
+## Phase 6: LoRA vs full fine-tuning
+
+Same data, schedule and evaluation as phase 3; only the trainable parameters differ. LoRA adapters (r=32, alpha=64,
+dropout 0.05) on the attention projections `q_proj`/`v_proj`: **3.5 M trainable parameters, 1.4% of the model**.
+Learning rate 1e-3 (the usual LoRA setting, 100× the 1e-5 used for full fine-tuning), because low-rank adapters need
+larger steps. The adapter is merged into the base weights before saving, so evaluation uses the same code path.
+
+| | full fine-tuning | LoRA (r=32) |
+|---|---|---|
+| trainable parameters | 242 M (100%) | 3.5 M (1.4%) |
+| peak VRAM | 5.9 GB | **2.8 GB** |
+| training time, 8 epochs | ~70 min | **48 min** |
+| best epoch (validation WER) | 7 (0.224) | 8 (0.226) |
+| **WER kk, FLEURS test** | **0.238** | **0.238** |
+| CER kk, FLEURS test | 0.072 | **0.060** |
+| WER kk, KSC test (out of domain) | **0.469** | 0.483 |
+| WER ru, FLEURS test | **0.210** | 0.415 |
+| WER en, FLEURS test | 0.106 | **0.104** |
+
+### Findings (phase 6)
+
+1. **LoRA matches full fine-tuning on the target language at half the VRAM.** Identical Kazakh WER (0.238), better CER
+   (0.060 vs 0.072), 2.8 GB instead of 5.9 GB, 48 min instead of 70, and the adapter itself is 3.5 M parameters —
+   so a per-language adapter can be shipped instead of a full model copy.
+2. **It did not reduce forgetting — it made Russian worse.** Russian WER 0.210 (full) vs 0.415 (LoRA), while English is
+   unchanged (0.106 vs 0.104). This contradicts the usual expectation and is the most interesting result of this phase.
+3. **The Russian damage is phonetic, not a language switch.** Only 1.8% of Russian hypotheses contain Kazakh-only
+   letters and there are no repetition loops; instead the model spells Russian words as it hears them
+   ("асбободели" for "освободили"). The Kazakh adaptation altered the acoustic-to-text mapping that Russian shares
+   with Kazakh (same Cyrillic script, overlapping phonology), rather than replacing the output language.
+4. **Out of domain the two are equivalent** (0.469 vs 0.483 on KSC), so neither method generalizes better to a new
+   Kazakh corpus.
+
+### Limitations (phase 6)
+
+- **The learning rates differ by 100×** (1e-3 vs 1e-5), so this compares two standard recipes, not the effect of LoRA
+  in isolation. The Russian degradation may be driven by the larger effective update rather than by LoRA itself; a
+  learning-rate sweep for both methods is the obvious follow-up and would be the first experiment of a thesis.
+- One rank (32), one target-module choice (`q_proj`, `v_proj`), one seed.
+- English was measured only on FLEURS, and "forgetting" here is measured on two languages out of the ~100 Whisper covers.

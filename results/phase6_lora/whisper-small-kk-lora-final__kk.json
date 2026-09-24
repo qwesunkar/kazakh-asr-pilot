@@ -1,0 +1,21 @@
+{
+  "model": "checkpoints/whisper-small-kk-lora/final",
+  "dataset": "fleurs",
+  "lang": "kk",
+  "split": "test",
+  "n_utts": 856,
+  "audio_hours": 3.835,
+  "wer": 0.23804767612198696,
+  "cer": 0.060007444432627885,
+  "rtf": 0.005629018809845579,
+  "wall_s": 77.70443919599893,
+  "peak_vram_alloc_gb": 1.599796736,
+  "peak_vram_reserved_gb": 1.704984576,
+  "params_m": 241.734912,
+  "device": "NVIDIA GeForce RTX 5060 Laptop GPU",
+  "dtype": "float16",
+  "decoding": "greedy (num_beams=1)",
+  "batch_size": 16,
+  "n_longform_gt30s": 14,
+  "forced_language": true
+}

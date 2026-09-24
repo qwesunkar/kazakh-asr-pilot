@@ -1,5 +1,8 @@
 """Phase 3: fine-tune whisper-small on Kazakh (FLEURS kk train), evaluate on FLEURS kk validation.
 
+With --lora, only low-rank adapters on the attention projections are trained; the adapter is merged
+into the base weights before saving, so the result is an ordinary Whisper checkpoint.
+
 Test data is never used here. Evaluate the result on the test splits with 01_zero_shot.py.
 
 Usage:
@@ -53,10 +56,16 @@ def main():
     ap.add_argument("--max-steps", type=int, default=-1, help="overrides --epochs (smoke test)")
     ap.add_argument("--batch-size", type=int, default=8)
     ap.add_argument("--grad-accum", type=int, default=2)
-    ap.add_argument("--lr", type=float, default=1e-5)
+    ap.add_argument("--lr", type=float, default=None, help="default: 1e-5 full, 1e-3 with --lora")
+    ap.add_argument("--lora", action="store_true", help="train LoRA adapters instead of all weights")
+    ap.add_argument("--lora-r", type=int, default=32)
     ap.add_argument("--out", default="checkpoints/whisper-small-kk")
     ap.add_argument("--resume", action="store_true", help="continue from the last checkpoint in --out")
     args = ap.parse_args()
+    if args.lr is None:
+        args.lr = 1e-3 if args.lora else 1e-5
+    if args.lora and args.out == "checkpoints/whisper-small-kk":
+        args.out = "checkpoints/whisper-small-kk-lora"
 
     processor = WhisperProcessor.from_pretrained(args.model, language="kazakh", task="transcribe")
     model = WhisperForConditionalGeneration.from_pretrained(args.model)
@@ -64,6 +73,14 @@ def main():
     model.generation_config.task = "transcribe"
     model.generation_config.forced_decoder_ids = None
     model.config.use_cache = False  # required with gradient checkpointing
+
+    if args.lora:
+        from peft import LoraConfig, get_peft_model
+        model.enable_input_require_grads()  # needed for gradient checkpointing through frozen weights
+        model = get_peft_model(model, LoraConfig(
+            r=args.lora_r, lora_alpha=2 * args.lora_r, lora_dropout=0.05, bias="none",
+            target_modules=["q_proj", "v_proj"]))
+        model.print_trainable_parameters()
 
     train = [x for x in load_fleurs("kk", "train") if len(x["audio"]) <= MAX_AUDIO]
     val = [x for x in load_fleurs("kk", "validation") if len(x["audio"]) <= MAX_AUDIO]
@@ -110,6 +127,9 @@ def main():
 
     result = trainer.train(resume_from_checkpoint=args.resume or None)
     final = os.path.join(args.out, "final")
+    if args.lora:
+        model = model.merge_and_unload()  # fold the adapter in: a plain Whisper checkpoint
+        trainer.model = model
     model.generation_config.forced_decoder_ids = None
     if isinstance(model.generation_config.eos_token_id, list):  # a list breaks Whisper's long-form decoding
         model.generation_config.eos_token_id = model.generation_config.eos_token_id[0]
@@ -117,7 +137,8 @@ def main():
     processor.save_pretrained(final)
 
     summary = {
-        "base_model": args.model, "train_utts": len(train), "val_utts": len(val),
+        "base_model": args.model, "lora": args.lora, "lora_r": args.lora_r if args.lora else None,
+        "train_utts": len(train), "val_utts": len(val),
         "epochs": args.epochs, "max_steps": args.max_steps, "lr": args.lr,
         "batch_size": args.batch_size, "grad_accum": args.grad_accum,
         "train_runtime_s": result.metrics["train_runtime"],
@@ -125,7 +146,8 @@ def main():
         "log_history": trainer.state.log_history,
     }
     os.makedirs("results", exist_ok=True)
-    json.dump(summary, open("results/phase3_training.json", "w"), indent=2, ensure_ascii=False)
+    name = "phase6_lora_training.json" if args.lora else "phase3_training.json"
+    json.dump(summary, open(f"results/{name}", "w"), indent=2, ensure_ascii=False)
     print(json.dumps({k: v for k, v in summary.items() if k != "log_history"}, indent=2))
 
 
