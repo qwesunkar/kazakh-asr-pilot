@@ -1,0 +1,19 @@
+{
+  "model": "openai/whisper-small",
+  "engine": "faster-whisper/ctranslate2",
+  "compute_type": "int8",
+  "lang": "en",
+  "split": "test",
+  "n_utts": 647,
+  "audio_hours": 1.774,
+  "wer": 0.08192109777015437,
+  "cer": 0.0338768893339055,
+  "rtf": 0.19835232832730854,
+  "wall_s": 1267.0548381220142,
+  "disk_mb": 251.939726,
+  "device": "cpu",
+  "cpu_threads": 8,
+  "batch_size": 1,
+  "decoding": "greedy (beam_size=1, temperature=0, no fallback)",
+  "forced_language": true
+}
