@@ -16,5 +16,9 @@
   "decoding": "ctc-greedy",
   "batch_size": 4,
   "n_longform_gt30s": 0,
-  "forced_language": true
+  "forced_language": true,
+  "wer_ci_lo": 0.12041706182687437,
+  "wer_ci_hi": 0.17676978881327685,
+  "cer_ci_lo": 0.02308040238003288,
+  "cer_ci_hi": 0.044197830704937796
 }

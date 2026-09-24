@@ -16,5 +16,9 @@
   "decoding": "greedy (num_beams=1)",
   "batch_size": 16,
   "n_longform_gt30s": 0,
-  "forced_language": true
+  "forced_language": true,
+  "wer_ci_lo": 0.16494204084624028,
+  "wer_ci_hi": 0.2321352153819436,
+  "cer_ci_lo": 0.03278707521182374,
+  "cer_ci_hi": 0.05598234846985589
 }

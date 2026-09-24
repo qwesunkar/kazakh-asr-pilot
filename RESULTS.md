@@ -9,7 +9,8 @@ compared with Russian and English, and what does it cost to run them locally?
 Seven phases on one laptop (RTX 5060 Laptop, 8 GB VRAM): a zero-shot baseline on FLEURS, CPU inference with int8
 quantization, Kazakh fine-tuning of whisper-small, an out-of-domain check on the Kazakh Speech Corpus, the fine-tuned
 model under int8, LoRA against full fine-tuning, and a LoRA learning-rate sweep.
-Every number below comes from a full test set with identical normalization; per-utterance outputs are in `results/`.
+Every number below comes from a full test set with identical normalization; per-utterance outputs are in `results/`,
+and every run carries a 95% bootstrap confidence interval (phase 9 lists which differences are statistically real).
 
 | model | params | Kazakh WER, FLEURS test | Kazakh WER, KSC test (out of domain) |
 |---|---|---|---|
@@ -146,7 +147,7 @@ Model: whisper-small only — see limitations.
 
 ### Findings (phase 2)
 
-1. **int8 quantization is close to free.** WER changes by at most +0.4 points (kk 0.748 → 0.752, ru 0.111 → 0.112, en 0.083 → 0.082, i.e. English even improves slightly), CER by at most +0.13 points. There is no sign that the low-resource language suffers more from quantization than the high-resource ones.
+1. **int8 quantization is close to free** (and phase 9 shows the difference is not statistically significant). WER changes by at most +0.4 points (kk 0.748 → 0.752, ru 0.111 → 0.112, en 0.083 → 0.082, i.e. English even improves slightly), CER by at most +0.13 points. There is no sign that the low-resource language suffers more from quantization than the high-resource ones.
 2. **It buys 2.1–2.9× speed and 3.9× disk.** RTF drops from 0.272/0.483/0.409 to 0.095/0.174/0.198 (kk/ru/en), and the model shrinks from 971 MB to 252 MB. Transcribing 8.1 hours of audio takes 69 minutes instead of 178.
 3. **A CPU-only laptop is enough for offline use of whisper-small.** At int8, one hour of speech costs 6–12 minutes of CPU time, so real-time transcription with a single stream has roughly 5–10× headroom. The GPU is still 10–50× faster than int8 on CPU (RTF 0.004–0.009), the smallest gap being Kazakh.
 4. **Changing the engine matters about as much as quantization.** CTranslate2 float32 vs transformers fp16 differs by −2.2 points WER on Kazakh (0.770 → 0.748) and +1.2 on English (0.071 → 0.083). The English difference comes almost entirely from **one** utterance where CTranslate2 falls into a repetition loop and adds 191 word errors out of 14575 reference words; without it CTranslate2 would be slightly better than transformers on English too. Kazakh improves because CTranslate2 produces fewer runaway hypotheses (1.4% vs 2.5%).
@@ -198,8 +199,8 @@ utterances ≤ 30 s, which is the number the training loop reports.
 
 1. **Fine-tuning on 11.8 h cuts Kazakh WER by 69% relative** (0.770 → 0.238; CER 0.259 → 0.072). On utterances under
    30 s, which is what training saw, WER drops to 0.217 — a 71% relative reduction.
-2. **A fine-tuned 242 M model beats zero-shot large-v3-turbo per parameter, and nearly matches it outright**
-   (0.238 vs 0.208 with 3.3× fewer parameters). It does not reach mms-1b-all (0.144), which was itself trained on
+2. **A fine-tuned 242 M model comes within three WER points of zero-shot large-v3-turbo**
+   (0.238 vs 0.208 with 3.3× fewer parameters; the gap is small but statistically real — see phase 9). It does not reach mms-1b-all (0.144), which was itself trained on
    FLEURS train and is 4× larger.
 3. **Catastrophic forgetting is real but moderate**: Russian 0.110 → 0.210 (1.9×) and English 0.071 → 0.106 (1.5×). Full fine-tuning of all weights on a single language is the direct cause; a thesis would compare this against
    LoRA or adapter-based tuning, which is what MMS does per language.
@@ -387,11 +388,12 @@ Russian and English are unaffected by the change (0.200 / 0.107 vs 0.210 / 0.106
 
 ### Findings (phase 8)
 
-1. **The fix did not work.** Long-utterance WER moved from 0.791 to 0.775, CER got *worse* (0.741 → 0.768) and the
-   hypotheses grew longer relative to the reference (1.77× → 1.86×). Timestamp-aware training in this form does not
-   restore long-form decoding.
-2. **It also cost short-form accuracy**: 0.240 vs 0.216 on the 842 utterances under 30 s, i.e. +2.4 points for no
-   benefit, which is why overall Kazakh WER rises to 0.260.
+1. **The fix did not work.** Long-utterance WER moved from 0.791 to 0.775 and CER from 0.741 to 0.768, but with only
+   14 long utterances the paired-bootstrap CI is ±0.29 WER (phase 9): the honest statement is that timestamp-aware
+   training in this form produced **no measurable improvement** in long-form decoding.
+2. **Short-form accuracy looks worse but the difference is within noise**: 0.240 vs 0.216 on the 842 utterances under
+   30 s (+2.4 points, CI [−0.004, +0.077]). Overall Kazakh WER rises to 0.260, and nothing here recommends the recipe,
+   but it cannot be called a significant regression.
 3. **The failure mode is a repetition loop inside the second window**, not duplicated text: the model emits
    "және" ("and") dozens of times before recovering and finishing the sentence correctly. The generated text contains
    no timestamp markup, so decoding strips it as expected.
@@ -409,3 +411,41 @@ Russian and English are unaffected by the change (0.200 / 0.107 vs 0.210 / 0.106
   training in general.
 - The long-utterance subset is 14 utterances out of 856, so the long-form numbers are noisy; they are reported as
   an indicator, not as a precise measurement.
+
+## Phase 9: confidence intervals and which differences are real
+
+Every run in `results/summary.csv` now carries a 95% bootstrap confidence interval (`wer_ci_lo/hi`, `cer_ci_lo/hi`),
+obtained by resampling utterances with replacement 1000 times and recomputing the corpus score each time.
+For comparisons between two systems evaluated on the same utterances, a **paired** bootstrap of the difference is
+used instead, which cancels the shared difficulty of the utterances.
+
+| comparison (B − A) | WER difference | 95% CI | different? |
+|---|---|---|---|
+| kk: fine-tuned → large-v3-turbo | −0.030 | [−0.052, −0.011] | **yes** |
+| kk: fine-tuned → mms-1b-all | −0.094 | [−0.116, −0.075] | **yes** |
+| kk: full fine-tuning → LoRA lr 1e-3 | +0.001 | [−0.030, +0.038] | no |
+| ru: full fine-tuning → LoRA lr 1e-3 | +0.205 | [+0.183, +0.225] | **yes** |
+| kk: CPU float32 → CPU int8 | +0.004 | [−0.012, +0.022] | no |
+| kk: fine-tuned → fine-tuned with timestamps | +0.022 | [−0.009, +0.080] | no |
+| KSC: large-v3-turbo → mms-1b-all | +0.011 | [−0.012, +0.030] | no |
+
+Selected single-run intervals (FLEURS kk test, 856 utterances): whisper-small zero-shot 0.770 [0.743, 0.799],
+fine-tuned 0.238 [0.218, 0.262], large-v3-turbo 0.208 [0.198, 0.219], mms-1b-all 0.144 [0.136, 0.152].
+
+### Findings (phase 9)
+
+1. **The headline differences hold.** Fine-tuning's effect on Kazakh (0.770 → 0.238) is far outside any interval, and
+   both large-v3-turbo and mms-1b-all remain significantly better than the fine-tuned small model on FLEURS
+   (by 0.030 and 0.094 WER). The phrase "nearly matches large-v3-turbo" in phase 3 should therefore be read as
+   "within three WER points", not as parity.
+2. **int8 quantization is free within measurement error.** The +0.4-point difference reported in phase 2 is not
+   distinguishable from zero, which strengthens that phase's conclusion rather than weakening it.
+3. **LoRA and full fine-tuning are indistinguishable on Kazakh** (+0.001, CI spans zero) while their Russian gap is
+   large and significant (+0.205), so phase 7's trade-off result rests on a real difference.
+4. **Phase 8's degradation was inside the noise.** Timestamp-aware training is neither significantly worse on short
+   utterances (+0.024, CI [−0.004, +0.077]) nor significantly better on long ones (−0.016, CI [−0.298, +0.286]).
+   The correct statement is that it produced **no measurable change**, not that it made things worse.
+5. **On KSC, mms-1b-all and large-v3-turbo are statistically tied** (+0.011, CI spans zero), which is what phase 4
+   claimed informally.
+6. **Small subsets cannot settle anything.** The 14 long Kazakh utterances give an interval ±0.29 WER wide, so no
+   conclusion about long-form behaviour can rest on them; that is a sample-size limit, not a modelling question.

@@ -25,8 +25,8 @@ For scale: zero-shot whisper-small reaches 0.110 on Russian and 0.071 on English
 1. **Below whisper-small, Kazakh does not work at all.** whisper-tiny returns repetition loops on 60% of Kazakh
    utterances, which is why its WER exceeds 1. The same models are usable on Russian and English, so this is a
    property of the language coverage, not of the architecture.
-2. **11.8 h of fine-tuning beats 3.3× more parameters — but only in domain.** Fine-tuned whisper-small reaches 0.238
-   on FLEURS against 0.208 for zero-shot large-v3-turbo. On KSC the ordering reverses (0.469 vs 0.286): the relative
+2. **11.8 h of fine-tuning brings a 242 M model within three WER points of an 809 M one — but only in domain.**
+   Fine-tuned whisper-small reaches 0.238 on FLEURS against 0.208 for zero-shot large-v3-turbo. On KSC the ordering reverses (0.469 vs 0.286): the relative
    gain falls from 69% to 46%. A single in-domain number would have overstated the result by a third.
 3. **Benchmark contamination is visible in practice.** mms-1b-all looks like the best Kazakh model on FLEURS (0.144)
    but drops to 0.297 on KSC, level with large-v3-turbo; its training data includes the FLEURS train split.
@@ -50,5 +50,7 @@ For scale: zero-shot whisper-small reaches 0.110 on Russian and 0.071 on English
   fixed (30 s truncation, a normalizer deleting bracketed text, `ё`/`е` inconsistencies, number formatting, and
   fine-tuning damaging Whisper's long-form decoding).
 
-All numbers come from full test sets and are reproducible with the commands in the repository's README; every run
-stores its per-utterance references and hypotheses.
+All numbers come from full test sets, carry 95% bootstrap confidence intervals, and are reproducible with the
+commands in the repository's README; every run stores its per-utterance references and hypotheses. Paired bootstrap
+tests confirm the differences quoted above (Kazakh: fine-tuned vs large-v3-turbo −0.030 [−0.052, −0.011]; Russian:
+full fine-tuning vs LoRA +0.205 [+0.183, +0.225]) and show that int8 quantization is free within measurement error.

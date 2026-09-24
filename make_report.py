@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from common import normalize, score
+from common import bootstrap_ci, normalize, score
 
 LANG_COLORS = {"kk": "#2a78d6", "ru": "#eb6834", "en": "#1baf7a"}
 LANG_NAMES = {"kk": "Kazakh", "ru": "Russian", "en": "English"}
@@ -31,6 +31,7 @@ def rescore(json_path):
     os.replace(csv_path + ".tmp", csv_path)
     r = json.load(open(json_path))
     r.update(score(list(d.ref), list(d.hyp)))
+    r.update(bootstrap_ci(list(d.ref), list(d.hyp)))
     json.dump(r, open(json_path + ".tmp", "w"), indent=2, ensure_ascii=False)
     os.replace(json_path + ".tmp", json_path)
     r["runaway_share"] = float((d.hyp_norm.str.len() > 1.5 * d.ref_norm.str.len()).mean())

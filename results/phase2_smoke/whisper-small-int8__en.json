@@ -15,5 +15,9 @@
   "cpu_threads": 8,
   "batch_size": 1,
   "decoding": "greedy (beam_size=1, temperature=0, no fallback)",
-  "forced_language": true
+  "forced_language": true,
+  "wer_ci_lo": 0.0425154148641652,
+  "wer_ci_hi": 0.0792566583933941,
+  "cer_ci_lo": 0.01623450529615513,
+  "cer_ci_hi": 0.03821005016811341
 }
