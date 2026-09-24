@@ -30,11 +30,12 @@ For scale: zero-shot whisper-small reaches 0.110 on Russian and 0.071 on English
    gain falls from 69% to 46%. A single in-domain number would have overstated the result by a third.
 3. **Benchmark contamination is visible in practice.** mms-1b-all looks like the best Kazakh model on FLEURS (0.144)
    but drops to 0.297 on KSC, level with large-v3-turbo; its training data includes the FLEURS train split.
-4. **Monolingual fine-tuning costs the other languages, and LoRA did not prevent it.** Full fine-tuning moves Russian
-   WER 0.110 → 0.210 and English 0.071 → 0.106. LoRA matches full fine-tuning on Kazakh (0.238) with 1.4% of the
-   parameters and half the VRAM, but Russian ends at 0.415 — worse than full fine-tuning. The damage is phonetic
-   (Russian spelled as heard) rather than a switch of output language. The two recipes differ in learning rate by
-   100×, so isolating the cause is a concrete first experiment.
+4. **Adapting to Kazakh trades off against Russian, and the update size sets the exchange rate.** A LoRA
+   learning-rate sweep moves Kazakh 0.358 → 0.296 → 0.238 while Russian goes 0.199 → 0.221 → 0.415. At equal Kazakh
+   accuracy, full fine-tuning keeps Russian at 0.210 where LoRA leaves it at 0.415, so LoRA's advantage here is
+   cost (1.4% of the parameters, half the VRAM), not retention. English is barely touched at the settings where
+   Russian degrades — interference tracks language similarity, and Russian shares the script and much of the
+   phonology with Kazakh. The damage is phonetic (Russian spelled as heard), not a switch of output language.
 5. **Local, offline use is practical today.** With CTranslate2 int8 the fine-tuned model is a 253 MB file that keeps
    its accuracy (WER 0.235 on CPU vs 0.238 on GPU) and transcribes one hour of speech in six minutes of CPU time.
 
@@ -42,8 +43,9 @@ For scale: zero-shot whisper-small reaches 0.110 on Russian and 0.071 on English
 
 - Evaluate low-resource ASR on at least two corpora per language; in-domain gains and contaminated benchmarks are the
   two failure modes this pilot ran into directly.
-- Pin down why parameter-efficient tuning degraded a related language here (Russian shares the Cyrillic script and
-  much of the phonology with Kazakh), separating learning rate, rank and target modules.
+- Map the adaptation/retention frontier properly: sweep learning rate and rank for both full and parameter-efficient
+  tuning, select checkpoints on a multilingual criterion, and test whether interference really tracks language
+  similarity across more language pairs.
 - Treat the pipeline itself as a measurement instrument: several findings here changed once measurement bugs were
   fixed (30 s truncation, a normalizer deleting bracketed text, `ё`/`е` inconsistencies, number formatting, and
   fine-tuning damaging Whisper's long-form decoding).

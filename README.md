@@ -114,3 +114,15 @@ setsid nohup .venv/bin/python 03_finetune_kk.py --lora --epochs 8 > phase6.log 2
 .venv/bin/python 01_zero_shot.py --dataset ksc --langs kk --models checkpoints/whisper-small-kk-lora/final --out results/phase6_lora_ksc
 .venv/bin/python make_report.py
 ```
+
+## Phase 7: LoRA learning-rate sweep
+
+```bash
+for LR in 1e-4 3e-4; do
+  .venv/bin/python 03_finetune_kk.py --lora --epochs 8 --lr $LR --out checkpoints/lora-lr$LR
+  .venv/bin/python 01_zero_shot.py --models checkpoints/lora-lr$LR/final --out results/phase7_lora_lr$LR
+done
+.venv/bin/python make_report.py   # also writes results/kk_vs_ru_tradeoff.png
+```
+
+The lr 1e-3 point of the sweep is the phase 6 run.

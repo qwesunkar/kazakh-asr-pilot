@@ -139,15 +139,17 @@ def main():
     summary = {
         "base_model": args.model, "lora": args.lora, "lora_r": args.lora_r if args.lora else None,
         "train_utts": len(train), "val_utts": len(val),
-        "epochs": args.epochs, "max_steps": args.max_steps, "lr": args.lr,
+        "epochs": args.epochs, "max_steps": args.max_steps, "lr": args.lr, "out": args.out,
         "batch_size": args.batch_size, "grad_accum": args.grad_accum,
         "train_runtime_s": result.metrics["train_runtime"],
         "peak_vram_alloc_gb": torch.cuda.max_memory_allocated() / 1e9,
         "log_history": trainer.state.log_history,
     }
     os.makedirs("results", exist_ok=True)
-    name = "phase6_lora_training.json" if args.lora else "phase3_training.json"
-    json.dump(summary, open(f"results/{name}", "w"), indent=2, ensure_ascii=False)
+    # one history file per run, named after the output directory
+    name = {"whisper-small-kk": "phase3_training", "whisper-small-kk-lora": "phase6_lora_training"}.get(
+        os.path.basename(args.out.rstrip("/")), os.path.basename(args.out.rstrip("/")) + "_training")
+    json.dump(summary, open(f"results/{name}.json", "w"), indent=2, ensure_ascii=False)
     print(json.dumps({k: v for k, v in summary.items() if k != "log_history"}, indent=2))
 
 

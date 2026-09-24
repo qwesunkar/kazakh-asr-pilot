@@ -112,4 +112,38 @@ if len(ksc):
     fig2.tight_layout()
     fig2.savefig("results/kk_wer_fleurs_vs_ksc.png", dpi=150)
 
+# Third plot: the trade-off between the target language and the others (LoRA learning-rate sweep)
+TRADEOFF = [  # label, phase, model_short, label offset in points
+    ("no fine-tuning", "phase1", "whisper-small", (-140, 14)),
+    ("full FT, lr 1e-5", "phase3", "whisper-small-kk-final", (-30, -38)),
+    ("LoRA, lr 1e-4", "phase7_lora_lr1e-4", "lora-lr1e-4-final", (10, -6)),
+    ("LoRA, lr 3e-4", "phase7_lora_lr3e-4", "lora-lr3e-4-final", (8, 12)),
+    ("LoRA, lr 1e-3", "phase6_lora", "whisper-small-kk-lora-final", (12, -4)),
+]
+pts = []
+for label, phase, model, off in TRADEOFF:
+    sel = df[(df.phase == phase) & (df.model_short == model)].set_index("lang").wer
+    if {"kk", "ru"} <= set(sel.index):
+        pts.append((label, sel["kk"], sel["ru"], off))
+if len(pts) >= 3:
+    fig3, ax3 = plt.subplots(figsize=(7.2, 5))
+    ax3.plot([p[1] for p in pts[2:]], [p[2] for p in pts[2:]], "-", color="#c3c2b7", zorder=1,
+             label="LoRA learning-rate sweep")
+    for label, kk, ru, off in pts:
+        color = "#2a78d6" if "LoRA" in label else "#eb6834"
+        ax3.scatter(kk, ru, s=90, color=color, zorder=2, edgecolor="white", linewidth=1.5)
+        ax3.annotate(f"{label}\nkk {kk:.3f} / ru {ru:.3f}", (kk, ru), textcoords="offset points",
+                     xytext=off, fontsize=8.5, color="#333")
+    ax3.set_xlabel("Kazakh WER, FLEURS test (target language, lower is better)")
+    ax3.set_ylabel("Russian WER, FLEURS test (forgetting, lower is better)")
+    ax3.set_title("Adapting to Kazakh trades off against Russian\n"
+                  "All models start from whisper-small; 8 epochs on 11.8 h of Kazakh", fontsize=11)
+    ax3.grid(True, color="#eeeeee")
+    ax3.set_axisbelow(True)
+    for sp in ["top", "right"]:
+        ax3.spines[sp].set_visible(False)
+    ax3.margins(0.18)
+    fig3.tight_layout()
+    fig3.savefig("results/kk_vs_ru_tradeoff.png", dpi=150)
+
 print("\nwrote results/summary.csv, results/wer_by_model_lang.png")

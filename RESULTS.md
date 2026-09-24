@@ -6,9 +6,9 @@ compared with Russian and English, and what does it cost to run them locally?
 
 ## Summary
 
-Six phases on one laptop (RTX 5060 Laptop, 8 GB VRAM): a zero-shot baseline on FLEURS, CPU inference with int8
+Seven phases on one laptop (RTX 5060 Laptop, 8 GB VRAM): a zero-shot baseline on FLEURS, CPU inference with int8
 quantization, Kazakh fine-tuning of whisper-small, an out-of-domain check on the Kazakh Speech Corpus, the fine-tuned
-model under int8, and LoRA against full fine-tuning.
+model under int8, LoRA against full fine-tuning, and a LoRA learning-rate sweep.
 Every number below comes from a full test set with identical normalization; per-utterance outputs are in `results/`.
 
 | model | params | Kazakh WER, FLEURS test | Kazakh WER, KSC test (out of domain) |
@@ -32,10 +32,11 @@ For reference, Russian and English WER of zero-shot whisper-small on FLEURS: 0.1
    zero-shot large model wins again (0.286 vs 0.469). Kazakh was learned, general robustness was not.
 4. **MMS's apparent Kazakh lead is largely in-domain.** Best on FLEURS (0.144), it drops to 0.297 on KSC, level with
    turbo; its training data includes FLEURS train.
-5. **Fine-tuning one language costs the others, and LoRA did not fix that.** Full fine-tuning moves Russian WER
-   0.110 → 0.210 and English 0.071 → 0.106. LoRA (3.5 M trainable parameters, half the VRAM) matches full fine-tuning
-   on Kazakh (0.238) but leaves Russian at 0.415 — worse, not better. The two recipes differ in learning rate by 100×,
-   so this is a finding about standard recipes, not about LoRA in isolation.
+5. **Adapting to Kazakh trades off against Russian, and the trade-off is set by the update size.** Across a LoRA
+   learning-rate sweep, Kazakh improves monotonically (0.358 → 0.296 → 0.238) as Russian degrades
+   (0.199 → 0.221 → 0.415). At equal Kazakh accuracy (0.238) full fine-tuning keeps Russian at 0.210 against LoRA's
+   0.415, so LoRA's benefit here is cost (1.4% trainable parameters, 2.8 GB instead of 5.9 GB VRAM), not retention.
+   English is far less affected than Russian at every setting — interference tracks language similarity.
 6. **Local CPU inference is practical and int8 is nearly free.** int8 costs at most +0.4 WER points while running
    2.1–2.9× faster and taking 252 MB instead of 971 MB; one hour of speech costs 6–12 minutes of CPU time. The
    fine-tuned Kazakh model keeps its accuracy through quantization (0.235 int8 on CPU vs 0.238 fp16 on GPU).
@@ -311,7 +312,8 @@ larger steps. The adapter is merged into the base weights before saving, so eval
    (0.060 vs 0.072), 2.8 GB instead of 5.9 GB, 48 min instead of 70, and the adapter itself is 3.5 M parameters —
    so a per-language adapter can be shipped instead of a full model copy.
 2. **It did not reduce forgetting — it made Russian worse.** Russian WER 0.210 (full) vs 0.415 (LoRA), while English is
-   unchanged (0.106 vs 0.104). This contradicts the usual expectation and is the most interesting result of this phase.
+   unchanged (0.106 vs 0.104). **Phase 7 traces this to the learning rate, not to LoRA**: at lr 1e-4 the same LoRA
+   setup reaches Russian 0.199. Read this row together with phase 7.
 3. **The Russian damage is phonetic, not a language switch.** Only 1.8% of Russian hypotheses contain Kazakh-only
    letters and there are no repetition loops; instead the model spells Russian words as it hears them
    ("асбободели" for "освободили"). The Kazakh adaptation altered the acoustic-to-text mapping that Russian shares
@@ -326,3 +328,43 @@ larger steps. The adapter is merged into the base weights before saving, so eval
   learning-rate sweep for both methods is the obvious follow-up and would be the first experiment of a thesis.
 - One rank (32), one target-module choice (`q_proj`, `v_proj`), one seed.
 - English was measured only on FLEURS, and "forgetting" here is measured on two languages out of the ~100 Whisper covers.
+
+## Phase 7: LoRA learning-rate sweep — separating the method from the update size
+
+Phase 6 compared two standard recipes whose learning rates differ by 100×, so its Russian result could not be
+attributed to LoRA itself. This phase repeats the LoRA run at 1e-4 and 3e-4, everything else unchanged
+(r=32, 8 epochs, same data, best checkpoint by validation WER).
+
+![Kazakh vs Russian trade-off](results/kk_vs_ru_tradeoff.png)
+
+| run | trainable | WER kk | WER ru | WER en | peak VRAM | training time |
+|---|---|---|---|---|---|---|
+| whisper-small, no fine-tuning | — | 0.770 | 0.110 | 0.071 | — | — |
+| full fine-tuning, lr 1e-5 | 242 M | **0.238** | 0.210 | 0.106 | 5.9 GB | ~70 min |
+| LoRA r=32, lr 1e-4 | 3.5 M | 0.358 | **0.199** | **0.078** | 2.8 GB | 47 min |
+| LoRA r=32, lr 3e-4 | 3.5 M | 0.296 | 0.221 | 0.082 | 2.8 GB | 48 min |
+| LoRA r=32, lr 1e-3 | 3.5 M | **0.238** | 0.415 | 0.104 | 2.8 GB | 48 min |
+
+### Findings (phase 7)
+
+1. **Forgetting is governed by the size of the update, not by LoRA as a method.** Across the LoRA sweep, Kazakh WER
+   improves monotonically with the learning rate (0.358 → 0.296 → 0.238) while Russian degrades monotonically
+   (0.199 → 0.221 → 0.415). Phase 6's "LoRA forgets more" conclusion was an artefact of comparing recipes at
+   different learning rates, and is corrected here.
+2. **At equal Kazakh accuracy, full fine-tuning forgets far less.** Both full fine-tuning (lr 1e-5) and LoRA (lr 1e-3)
+   reach 0.238 on Kazakh, but Russian is 0.210 vs 0.415. Full fine-tuning also dominates LoRA at lr 3e-4 on both
+   axes (0.238/0.210 vs 0.296/0.221), so in this setup LoRA does not sit on a better trade-off frontier.
+3. **LoRA's real advantage here is cost, not robustness**: 1.4% trainable parameters, 2.8 GB of VRAM instead of 5.9 GB,
+   and a 3.5 M-parameter adapter that can be shipped per language instead of a full 242 M model copy.
+4. **Russian suffers much more than English at every setting.** At lr 1e-4, English (0.078) is nearly untouched
+   relative to the 0.071 baseline while Russian already moves from 0.110 to 0.199. Kazakh and Russian share the
+   Cyrillic script and much of their phonology, so adaptation interferes with the closer language — the most
+   thesis-relevant observation in this pilot.
+
+### Limitations (phase 7)
+
+- Three learning rates, one rank, one seed, one target-module choice; no sweep of the full fine-tuning learning rate,
+  so the frontier of the full method is a single point rather than a curve.
+- The comparison uses the best checkpoint per run by Kazakh validation WER, which favours Kazakh accuracy over
+  retention by construction; selecting on a multilingual criterion would move every point.
+- Kazakh was not re-tested on KSC for the two new runs.

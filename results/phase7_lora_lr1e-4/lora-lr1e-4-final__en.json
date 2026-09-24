@@ -1,0 +1,21 @@
+{
+  "model": "checkpoints/lora-lr1e-4/final",
+  "dataset": "fleurs",
+  "lang": "en",
+  "split": "test",
+  "n_utts": 647,
+  "audio_hours": 1.774,
+  "wer": 0.07787307032590052,
+  "cer": 0.03330472512277691,
+  "rtf": 0.003839010854271194,
+  "wall_s": 24.52321743599896,
+  "peak_vram_alloc_gb": 1.535634432,
+  "peak_vram_reserved_gb": 1.952448512,
+  "params_m": 241.734912,
+  "device": "NVIDIA GeForce RTX 5060 Laptop GPU",
+  "dtype": "float16",
+  "decoding": "greedy (num_beams=1)",
+  "batch_size": 16,
+  "n_longform_gt30s": 0,
+  "forced_language": true
+}
