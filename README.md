@@ -147,3 +147,15 @@ The lr 1e-3 point of the sweep is the phase 6 run.
 .venv/bin/python 01_zero_shot.py --models checkpoints/whisper-small-kk-mix/final --out results/phase11_mix
 .venv/bin/python make_report.py
 ```
+
+## Phases 12-13: rehearsal out of domain, and the LoRA rank sweep
+
+```bash
+.venv/bin/python 01_zero_shot.py --dataset ksc --langs kk --models checkpoints/whisper-small-kk-mix/final --out results/phase12_mix_ksc
+
+for R in 8 64; do
+  .venv/bin/python 03_finetune_kk.py --lora --lora-r $R --epochs 8 --out checkpoints/lora-r$R
+  .venv/bin/python 01_zero_shot.py --models checkpoints/lora-r$R/final --out results/phase13_lora_r$R
+done
+.venv/bin/python make_report.py
+```

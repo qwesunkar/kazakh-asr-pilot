@@ -15,7 +15,7 @@ Language is forced, decoding is greedy, and references and hypotheses pass throu
 | whisper-small | 242 M | 0.770 | 0.863 |
 | **whisper-small fine-tuned on 11.8 h Kazakh** | 242 M | **0.238** | 0.469 |
 | same, LoRA (3.5 M trainable, 1.4%) | 242 M | 0.238 | 0.483 |
-| same + 20% Russian/English rehearsal | 242 M | **0.233** | not measured |
+| same + 20% Russian/English rehearsal | 242 M | **0.233** | 0.487 |
 | whisper-large-v3-turbo | 809 M | 0.208 | 0.286 |
 | mms-1b-all | 965 M | 0.144 | 0.297 |
 
@@ -33,7 +33,9 @@ For scale: zero-shot whisper-small reaches 0.110 on Russian and 0.071 on English
    but drops to 0.297 on KSC, level with large-v3-turbo; its training data includes the FLEURS train split.
 4. **Adapting to Kazakh trades off against Russian, and the update size sets the exchange rate — but rehearsal
    breaks the trade-off.** A LoRA learning-rate sweep moves Kazakh 0.358 → 0.296 → 0.238 while Russian goes
-   0.199 → 0.221 → 0.415, so the cost follows the size of the update rather than the tuning method. Adding 20%
+   0.199 → 0.221 → 0.415, and a rank sweep (r=8/32/64) traces the same curve — the cost follows how far the weights
+   move, not the mechanism. The two sides saturate differently: r=8 → r=64 changes Kazakh by 0.048 WER and Russian
+   by 0.298. Adding 20%
    Russian and English data to the fine-tuning set removes about 80% of the forgetting at no measurable cost to
    Kazakh (kk 0.233, ru 0.127 against a 0.110 baseline, en 0.079 against 0.071). Russian suffers far more than
    English throughout: it shares the Cyrillic script and much of the phonology with Kazakh, and the damage is

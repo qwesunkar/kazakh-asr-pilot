@@ -114,25 +114,29 @@ if len(ksc):
     fig2.savefig("results/kk_wer_fleurs_vs_ksc.png", dpi=150)
 
 # Third plot: the trade-off between the target language and the others (LoRA learning-rate sweep)
-TRADEOFF = [  # label, phase, model_short, label offset in points
-    ("no fine-tuning", "phase1", "whisper-small", (-140, 14)),
-    ("full FT, lr 1e-5", "phase3", "whisper-small-kk-final", (-52, 16)),
-    ("LoRA, lr 1e-4", "phase7_lora_lr1e-4", "lora-lr1e-4-final", (10, -6)),
-    ("LoRA, lr 3e-4", "phase7_lora_lr3e-4", "lora-lr3e-4-final", (8, 12)),
-    ("LoRA, lr 1e-3", "phase6_lora", "whisper-small-kk-lora-final", (12, -4)),
-    ("full FT + 20% ru/en data", "phase11_mix", "whisper-small-kk-mix-final", (14, -24)),
+TRADEOFF = [  # label, phase, model_short, label offset, sweep this point belongs to
+    ("no fine-tuning", "phase1", "whisper-small", (-140, 14), None),
+    ("full FT, lr 1e-5", "phase3", "whisper-small-kk-final", (-52, 16), None),
+    ("LoRA r=32, lr 1e-4", "phase7_lora_lr1e-4", "lora-lr1e-4-final", (10, -6), "lr"),
+    ("LoRA r=32, lr 3e-4", "phase7_lora_lr3e-4", "lora-lr3e-4-final", (8, 12), "lr"),
+    ("LoRA r=32, lr 1e-3", "phase6_lora", "whisper-small-kk-lora-final", (12, -16), "lr rank"),
+    ("LoRA r=8", "phase13_lora_r8", "lora-r8-final", (10, 8), "rank"),
+    ("LoRA r=64", "phase13_lora_r64", "lora-r64-final", (12, -4), "rank"),
+    ("full FT + 20% ru/en data", "phase11_mix", "whisper-small-kk-mix-final", (14, -24), None),
 ]
 pts = []
-for label, phase, model, off in TRADEOFF:
+for label, phase, model, off, sweep in TRADEOFF:
     sel = df[(df.phase == phase) & (df.model_short == model)].set_index("lang").wer
     if {"kk", "ru"} <= set(sel.index):
-        pts.append((label, sel["kk"], sel["ru"], off))
+        pts.append((label, sel["kk"], sel["ru"], off, sweep or ""))
 if len(pts) >= 3:
-    fig3, ax3 = plt.subplots(figsize=(7.2, 5))
-    lora = [p for p in pts if "LoRA" in p[0]]
-    ax3.plot([p[1] for p in lora], [p[2] for p in lora], "-", color="#c3c2b7", zorder=1,
-             label="LoRA learning-rate sweep")
-    for label, kk, ru, off in pts:
+    fig3, ax3 = plt.subplots(figsize=(7.6, 5.4))
+    for sweep, color, name in [("lr", "#c3c2b7", "LoRA learning-rate sweep (r=32)"),
+                               ("rank", "#9ec5f4", "LoRA rank sweep (lr 1e-3)")]:
+        line = sorted([p for p in pts if sweep in p[4]], key=lambda p: p[1])
+        if len(line) > 1:
+            ax3.plot([p[1] for p in line], [p[2] for p in line], "-", color=color, zorder=1, label=name)
+    for label, kk, ru, off, sweep in pts:
         color = "#2a78d6" if "LoRA" in label else ("#1baf7a" if "ru/en" in label else "#eb6834")
         ax3.scatter(kk, ru, s=90, color=color, zorder=2, edgecolor="white", linewidth=1.5)
         ax3.annotate(f"{label}\nkk {kk:.3f} / ru {ru:.3f}", (kk, ru), textcoords="offset points",
@@ -145,7 +149,8 @@ if len(pts) >= 3:
     ax3.set_axisbelow(True)
     for sp in ["top", "right"]:
         ax3.spines[sp].set_visible(False)
-    ax3.margins(0.18)
+    ax3.margins(0.2)
+    ax3.legend(frameon=False, loc="upper left", fontsize=9)
     fig3.tight_layout()
     fig3.savefig("results/kk_vs_ru_tradeoff.png", dpi=150)
 

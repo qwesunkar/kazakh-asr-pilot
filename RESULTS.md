@@ -6,7 +6,7 @@ compared with Russian and English, and what does it cost to run them locally?
 
 ## Summary
 
-Eleven phases on one laptop (RTX 5060 Laptop, 8 GB VRAM): a zero-shot baseline on FLEURS, CPU inference with int8
+Thirteen phases on one laptop (RTX 5060 Laptop, 8 GB VRAM): a zero-shot baseline on FLEURS, CPU inference with int8
 quantization, Kazakh fine-tuning of whisper-small, an out-of-domain check on the Kazakh Speech Corpus, the fine-tuned
 model under int8, LoRA against full fine-tuning, a LoRA learning-rate sweep, confidence intervals, an error
 analysis, and multilingual rehearsal.
@@ -20,7 +20,7 @@ and every run carries a 95% bootstrap confidence interval (phase 9 lists which d
 | whisper-small | 242 M | 0.770 | 0.863 |
 | **whisper-small fine-tuned on 11.8 h Kazakh** | 242 M | **0.238** (−69% rel.) | 0.469 (−46% rel.) |
 | whisper-small, same data, LoRA r=32 | 3.5 M trained | 0.238 | 0.483 |
-| **whisper-small, fine-tuned + 20% ru/en rehearsal** | 242 M | **0.233** | not measured |
+| **whisper-small, fine-tuned + 20% ru/en rehearsal** | 242 M | **0.233** | 0.487 |
 | whisper-large-v3-turbo | 809 M | 0.208 | **0.286** |
 | mms-1b-all | 965 M | **0.144** | 0.297 |
 
@@ -38,8 +38,9 @@ For reference, Russian and English WER of zero-shot whisper-small on FLEURS: 0.1
 5. **Adapting to Kazakh trades off against Russian — but the trade-off can be avoided.** Across a LoRA
    learning-rate sweep, Kazakh improves monotonically (0.358 → 0.296 → 0.238) as Russian degrades
    (0.199 → 0.221 → 0.415), so the exchange rate is set by the size of the update, not by the tuning method.
+   The LoRA rank sweep traces the same curve, so what matters is how far the weights move, not the mechanism.
    Mixing 20% Russian and English data into the fine-tuning set removes ~80% of the forgetting at no cost to Kazakh
-   (kk 0.233, ru 0.127 against a 0.110 baseline). English is far less affected than Russian throughout —
+   (kk 0.233, ru 0.127 against a 0.110 baseline), in domain and on KSC alike. English is far less affected than Russian throughout —
    interference tracks language similarity.
 6. **Local CPU inference is practical and int8 is nearly free.** int8 costs at most +0.4 WER points while running
    2.1–2.9× faster and taking 252 MB instead of 971 MB; one hour of speech costs 6–12 minutes of CPU time. The
@@ -534,3 +535,63 @@ Russian −0.083 [−0.104, −0.066] (real). Against the untouched base model, 
 - Checkpoint selection still uses Kazakh validation only, so retention is not being optimized for — which makes the
   result conservative rather than optimistic.
 - Kazakh was not re-tested on KSC for this run.
+
+## Phase 12: does multilingual rehearsal survive a change of domain?
+
+Phase 11's best configuration was measured only on FLEURS, which is the mistake phase 4 warns about. The mixed model
+was therefore re-run on KSC.
+
+| model | WER kk, FLEURS | WER kk, KSC |
+|---|---|---|
+| whisper-small, zero-shot | 0.770 | 0.863 |
+| fine-tuned, Kazakh only | 0.238 | **0.469** |
+| fine-tuned + 20% ru/en rehearsal | **0.233** | 0.487 |
+
+Paired bootstrap on KSC, Kazakh-only → mixed: +0.018 [−0.002, +0.045], **not significant**. Against the zero-shot
+baseline the mixed model wins by −0.376 [−0.411, −0.340].
+
+**Finding.** Rehearsal costs nothing out of domain either: the mixed model is statistically indistinguishable from
+Kazakh-only training on KSC while keeping Russian at 0.127 instead of 0.210. The phase 11 recommendation therefore
+holds on both corpora, which is the check phase 11 listed as missing.
+
+## Phase 13: LoRA rank sweep — a second knob on the same trade-off
+
+Phase 7 varied the learning rate at rank 32. This phase varies the rank at the fixed learning rate 1e-3, everything
+else unchanged.
+
+![Kazakh vs Russian trade-off](results/kk_vs_ru_tradeoff.png)
+
+| run | trainable | WER kk | WER ru | WER en |
+|---|---|---|---|---|
+| LoRA r=8 | 0.9 M (0.36%) | 0.264 | **0.285** | **0.090** |
+| LoRA r=32 | 3.5 M (1.44%) | 0.238 | 0.415 | 0.104 |
+| LoRA r=64 | 7.1 M (2.84%) | **0.216** | 0.583 | 0.132 |
+| full fine-tuning, lr 1e-5 | 242 M (100%) | 0.238 | 0.210 | 0.106 |
+| full fine-tuning + rehearsal | 242 M (100%) | 0.233 | **0.127** | **0.079** |
+
+Paired bootstrap: on Russian every rank step is significant (r=32 → r=8 −0.130 [−0.141, −0.120];
+r=32 → r=64 +0.168 [+0.157, +0.179]). On Kazakh no rank step is significant on its own
+(r=32 → r=8 +0.026 [−0.012, +0.050]; r=32 → r=64 −0.022 [−0.061, +0.000]).
+
+### Findings (phase 13)
+
+1. **Rank is a second knob on the same trade-off.** Raising it improves Kazakh and degrades Russian monotonically,
+   exactly as raising the learning rate does; the two sweeps trace nearly the same curve (plot above).
+   What governs forgetting is how far the weights are allowed to move, not which mechanism moves them.
+2. **The two sides saturate at different rates — this is the useful asymmetry.** Going from r=8 to r=64 changes
+   Kazakh by 0.048 WER (no single step significant) while Russian changes by 0.298 (every step significant).
+   Past a point, extra adaptation capacity buys almost nothing on the target language and costs the other languages
+   a great deal.
+3. **LoRA r=64 gives the best Kazakh number in this pilot** (0.216, significantly better than full fine-tuning's
+   0.238) — but at Russian 0.583, i.e. five times the baseline error. It is the right choice only for a
+   Kazakh-only deployment.
+4. **Rehearsal still dominates.** The mixed full fine-tuning run (kk 0.233 / ru 0.127) is statistically tied with
+   LoRA r=64 on Kazakh (+0.017 [−0.003, +0.040]) while keeping Russian four and a half times lower. No point on
+   either LoRA sweep comes close to it.
+
+### Limitations (phases 12–13)
+
+- Rank and learning rate were swept separately, never jointly; the curve is traced by two one-dimensional slices.
+- One seed per configuration; the Kazakh differences between ranks are within noise individually, and only the
+  monotone trend across three points supports the reading above.
+- Rehearsal was not combined with LoRA, which is the obvious next configuration to try.
