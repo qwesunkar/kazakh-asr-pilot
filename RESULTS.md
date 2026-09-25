@@ -9,7 +9,7 @@ compared with Russian and English, and what does it cost to run them locally?
 Thirteen phases on one laptop (RTX 5060 Laptop, 8 GB VRAM): a zero-shot baseline on FLEURS, CPU inference with int8
 quantization, Kazakh fine-tuning of whisper-small, an out-of-domain check on the Kazakh Speech Corpus, the fine-tuned
 model under int8, LoRA against full fine-tuning, a LoRA learning-rate sweep, confidence intervals, an error
-analysis, and multilingual rehearsal.
+analysis, multilingual rehearsal, an out-of-domain check of that rehearsal, and a LoRA rank sweep.
 Every number below comes from a full test set with identical normalization; per-utterance outputs are in `results/`,
 and every run carries a 95% bootstrap confidence interval (phase 9 lists which differences are statistically real).
 
@@ -19,7 +19,8 @@ and every run carries a 95% bootstrap confidence interval (phase 9 lists which d
 | whisper-base | 73 M | 1.157 (unusable) | — |
 | whisper-small | 242 M | 0.770 | 0.863 |
 | **whisper-small fine-tuned on 11.8 h Kazakh** | 242 M | **0.238** (−69% rel.) | 0.469 (−46% rel.) |
-| whisper-small, same data, LoRA r=32 | 3.5 M trained | 0.238 | 0.483 |
+| whisper-small, same data, LoRA r=32 | 242 M (3.5 M trained) | 0.238 | 0.483 |
+| whisper-small, same data, LoRA r=64 | 242 M (7.1 M trained) | 0.216 (best Kazakh here, at ru 0.583) | not measured |
 | **whisper-small, fine-tuned + 20% ru/en rehearsal** | 242 M | **0.233** | 0.487 |
 | whisper-large-v3-turbo | 809 M | 0.208 | **0.286** |
 | mms-1b-all | 965 M | **0.144** | 0.297 |
@@ -29,8 +30,9 @@ For reference, Russian and English WER of zero-shot whisper-small on FLEURS: 0.1
 1. **Model size decides whether Kazakh works at all.** Below whisper-small the models do not transcribe Kazakh, they
    hallucinate: 60% of whisper-tiny's Kazakh outputs are repetition loops, which is why its WER exceeds 1. The same
    models handle Russian and English (WER 0.07–0.36), so the failure is about the language, not the model family.
-2. **11.8 h of Kazakh fine-tuning beats 3.3× more parameters in domain.** Fine-tuned whisper-small (242 M) reaches
-   0.238 against zero-shot large-v3-turbo's 0.208 (809 M), on a laptop, in 70 minutes of training.
+2. **11.8 h of Kazakh fine-tuning brings a 242 M model within three WER points of a 3.3× larger one.** Fine-tuned
+   whisper-small reaches 0.238 against zero-shot large-v3-turbo's 0.208 (809 M) — a small but statistically real gap
+   (phase 9) — after 70 minutes of training on a laptop.
 3. **In-domain numbers overstate the gain by a third.** On KSC the same fine-tuning gives −46% instead of −69%, and the
    zero-shot large model wins again (0.286 vs 0.469). Kazakh was learned, general robustness was not.
 4. **MMS's apparent Kazakh lead is largely in-domain.** Best on FLEURS (0.144), it drops to 0.297 on KSC, level with
@@ -38,13 +40,18 @@ For reference, Russian and English WER of zero-shot whisper-small on FLEURS: 0.1
 5. **Adapting to Kazakh trades off against Russian — but the trade-off can be avoided.** Across a LoRA
    learning-rate sweep, Kazakh improves monotonically (0.358 → 0.296 → 0.238) as Russian degrades
    (0.199 → 0.221 → 0.415), so the exchange rate is set by the size of the update, not by the tuning method.
-   The LoRA rank sweep traces the same curve, so what matters is how far the weights move, not the mechanism.
+   The LoRA rank sweep (r=8/32/64) traces the same curve, so what matters is how far the weights move, not the
+   mechanism — and the two sides saturate differently: across that range Kazakh moves 0.048 WER while Russian moves 0.298.
    Mixing 20% Russian and English data into the fine-tuning set removes ~80% of the forgetting at no cost to Kazakh
    (kk 0.233, ru 0.127 against a 0.110 baseline), in domain and on KSC alike. English is far less affected than Russian throughout —
    interference tracks language similarity.
 6. **Local CPU inference is practical and int8 is nearly free.** int8 costs at most +0.4 WER points while running
    2.1–2.9× faster and taking 252 MB instead of 971 MB; one hour of speech costs 6–12 minutes of CPU time. The
    fine-tuned Kazakh model keeps its accuracy through quantization (0.235 int8 on CPU vs 0.238 fp16 on GPU).
+7. **Fine-tuning changes the kind of error, not only the amount.** For the zero-shot model 63% of substitutions are a
+   completely different word; after fine-tuning that drops to 37% while "one character off" rises from 24% to 44%.
+   About 55% of the remaining substitutions are near misses in a long agglutinative word, which is why Kazakh CER
+   (0.072) is so much lower than WER (0.238). Kazakh-specific letters account for only 2–4% of substitutions.
 
 Measurement pitfalls that changed results, all documented in the phase sections: Whisper silently truncates audio
 over 30 s; Whisper's `BasicTextNormalizer` deletes text in brackets (11% of FLEURS references); FLEURS Russian mixes
