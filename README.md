@@ -167,3 +167,9 @@ done
 .venv/bin/python 01_zero_shot.py --models checkpoints/lora-mix/final --out results/phase14_lora_mix
 .venv/bin/python make_report.py
 ```
+
+## Phase 15: LoRA + rehearsal, out of domain
+
+```bash
+.venv/bin/python 01_zero_shot.py --dataset ksc --langs kk --models checkpoints/lora-mix/final --out results/phase15_lora_mix_ksc
+```

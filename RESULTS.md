@@ -6,10 +6,10 @@ compared with Russian and English, and what does it cost to run them locally?
 
 ## Summary
 
-Fourteen phases on one laptop (RTX 5060 Laptop, 8 GB VRAM): a zero-shot baseline on FLEURS, CPU inference with int8
+Fifteen phases on one laptop (RTX 5060 Laptop, 8 GB VRAM): a zero-shot baseline on FLEURS, CPU inference with int8
 quantization, Kazakh fine-tuning of whisper-small, an out-of-domain check on the Kazakh Speech Corpus, the fine-tuned
 model under int8, LoRA against full fine-tuning, a LoRA learning-rate sweep, confidence intervals, an error
-analysis, multilingual rehearsal, an out-of-domain check of that rehearsal, a LoRA rank sweep, and LoRA combined with rehearsal.
+analysis, multilingual rehearsal, an out-of-domain check of that rehearsal, a LoRA rank sweep, LoRA combined with rehearsal, and an out-of-domain check of every fine-tuned variant.
 Every number below comes from a full test set with identical normalization; per-utterance outputs are in `results/`,
 and every run carries a 95% bootstrap confidence interval (phase 9 lists which differences are statistically real).
 
@@ -21,7 +21,7 @@ and every run carries a 95% bootstrap confidence interval (phase 9 lists which d
 | **whisper-small fine-tuned on 11.8 h Kazakh** | 242 M | **0.238** (−69% rel.) | 0.469 (−46% rel.) |
 | whisper-small, same data, LoRA r=32 | 242 M (3.5 M trained) | 0.238 | 0.483 |
 | whisper-small, same data, LoRA r=64 | 242 M (7.1 M trained) | 0.216 (at ru 0.583) | not measured |
-| **whisper-small, LoRA r=32 + 20% ru/en rehearsal** | 242 M (3.5 M trained) | **0.215** (at ru 0.167) | not measured |
+| **whisper-small, LoRA r=32 + 20% ru/en rehearsal** | 242 M (3.5 M trained) | **0.215** (at ru 0.167) | 0.498 |
 | **whisper-small, fine-tuned + 20% ru/en rehearsal** | 242 M | **0.233** | 0.487 |
 | whisper-large-v3-turbo | 809 M | 0.208 | **0.286** |
 | mms-1b-all | 965 M | **0.144** | 0.297 |
@@ -34,8 +34,10 @@ For reference, Russian and English WER of zero-shot whisper-small on FLEURS: 0.1
 2. **11.8 h of Kazakh fine-tuning brings a 242 M model within three WER points of a 3.3× larger one.** Fine-tuned
    whisper-small reaches 0.238 against zero-shot large-v3-turbo's 0.208 (809 M) — a small but statistically real gap
    (phase 9) — after 70 minutes of training on a laptop.
-3. **In-domain numbers overstate the gain by a third.** On KSC the same fine-tuning gives −46% instead of −69%, and the
-   zero-shot large model wins again (0.286 vs 0.469). Kazakh was learned, general robustness was not.
+3. **In-domain numbers overstate the gain by a third, and in-domain rankings do not survive.** On KSC the same
+   fine-tuning gives −46% instead of −69%, and the zero-shot large model wins again (0.286 vs 0.469). The best
+   in-domain configuration (LoRA + rehearsal, 0.215) is the worst of the fine-tuned variants on KSC (0.498), where
+   all of them cluster within three points. Kazakh was learned, general robustness was not.
 4. **MMS's apparent Kazakh lead is largely in-domain.** Best on FLEURS (0.144), it drops to 0.297 on KSC, level with
    turbo; its training data includes FLEURS train.
 5. **Adapting to Kazakh trades off against Russian — but the trade-off can be avoided.** Across a LoRA
@@ -649,3 +651,33 @@ tie** — the same holds against LoRA r=64 (−0.001 [−0.011, +0.008]).
 - Checkpoints are still selected on Kazakh validation WER alone.
 - Not evaluated on KSC, so the out-of-domain behaviour of this corner is unknown; phase 12 checked only the
   full fine-tuning version.
+
+## Phase 15: the best in-domain configuration is not the best out of domain
+
+Phase 14 left its KSC number unmeasured. Running it closes the matrix on both corpora.
+
+| model | WER kk, FLEURS | WER kk, KSC |
+|---|---|---|
+| whisper-small, zero-shot | 0.770 | 0.863 |
+| full fine-tuning, Kazakh only | 0.238 | **0.469** |
+| LoRA r=32 | 0.238 | 0.483 |
+| full fine-tuning + rehearsal | 0.233 | 0.487 |
+| **LoRA r=32 + rehearsal** | **0.215** | 0.498 |
+| large-v3-turbo, zero-shot | 0.208 | **0.286** |
+
+Paired bootstrap on KSC against LoRA + rehearsal: Kazakh-only full fine-tuning is better by 0.029
+[0.015, 0.046] and plain LoRA by 0.015 [0.001, 0.032], both significant; full fine-tuning with rehearsal is tied
+(0.011 [−0.017, +0.033]). All four are far behind zero-shot large-v3-turbo (0.211 [0.185, 0.237]).
+
+### Findings (phase 15)
+
+1. **The in-domain ranking inverts out of domain.** LoRA + rehearsal is the best fine-tuned configuration on FLEURS
+   (0.215) and the worst on KSC (0.498). The 2.3-point in-domain advantage it holds over Kazakh-only fine-tuning
+   becomes a 2.9-point disadvantage on the other corpus, and both differences are statistically significant.
+2. **All fine-tuned variants collapse into one cluster out of domain** (0.469–0.498, a 3-point spread) even though
+   they span 0.215–0.238 in domain. Whatever separates them on FLEURS is domain-specific.
+3. **Zero-shot large-v3-turbo remains far ahead on KSC** (0.286 vs 0.469–0.498). No amount of fine-tuning a small
+   model on 11.8 h of read speech approaches a large model's robustness on a different corpus.
+4. **Practical reading**: pick the configuration for the domain you will deploy in, and never rank configurations on
+   a single corpus. For FLEURS-like read speech, LoRA + rehearsal is the best accuracy-per-GB; for unknown or mixed
+   domains, a larger zero-shot model is still the safer choice.

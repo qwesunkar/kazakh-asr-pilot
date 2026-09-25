@@ -16,7 +16,7 @@ Language is forced, decoding is greedy, and references and hypotheses pass throu
 | **whisper-small fine-tuned on 11.8 h Kazakh** | 242 M | **0.238** | 0.469 |
 | same, LoRA (3.5 M trainable, 1.4%) | 242 M | 0.238 | 0.483 |
 | same + 20% Russian/English rehearsal | 242 M | **0.233** | 0.487 |
-| LoRA r=32 + 20% rehearsal (3.5 M trained, 2.8 GB VRAM) | 242 M | **0.215** | not measured |
+| LoRA r=32 + 20% rehearsal (3.5 M trained, 2.8 GB VRAM) | 242 M | **0.215** | 0.498 |
 | whisper-large-v3-turbo | 809 M | 0.208 | 0.286 |
 | mms-1b-all | 965 M | 0.144 | 0.297 |
 
@@ -29,7 +29,9 @@ For scale: zero-shot whisper-small reaches 0.110 on Russian and 0.071 on English
    property of the language coverage, not of the architecture.
 2. **11.8 h of fine-tuning brings a 242 M model within three WER points of an 809 M one — but only in domain.**
    Fine-tuned whisper-small reaches 0.238 on FLEURS against 0.208 for zero-shot large-v3-turbo. On KSC the ordering reverses (0.469 vs 0.286): the relative
-   gain falls from 69% to 46%. A single in-domain number would have overstated the result by a third.
+   gain falls from 69% to 46%. Worse, the ranking of the fine-tuned variants inverts — the best one in domain
+   (0.215) is the worst on KSC (0.498), where all of them cluster within three points. A single in-domain number
+   would have overstated the result by a third and picked the wrong configuration.
 3. **Benchmark contamination is visible in practice.** mms-1b-all looks like the best Kazakh model on FLEURS (0.144)
    but drops to 0.297 on KSC, level with large-v3-turbo; its training data includes the FLEURS train split.
 4. **Adapting to Kazakh trades off against Russian, and the update size sets the exchange rate — but rehearsal
