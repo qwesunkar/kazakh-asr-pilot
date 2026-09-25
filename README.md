@@ -159,3 +159,11 @@ for R in 8 64; do
 done
 .venv/bin/python make_report.py
 ```
+
+## Phase 14: LoRA with rehearsal
+
+```bash
+.venv/bin/python 03_finetune_kk.py --lora --lora-r 32 --mix ru en --mix-utts 800 --epochs 8 --out checkpoints/lora-mix
+.venv/bin/python 01_zero_shot.py --models checkpoints/lora-mix/final --out results/phase14_lora_mix
+.venv/bin/python make_report.py
+```

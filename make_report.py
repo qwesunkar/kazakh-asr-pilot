@@ -122,7 +122,8 @@ TRADEOFF = [  # label, phase, model_short, label offset, sweep this point belong
     ("LoRA r=32, lr 1e-3", "phase6_lora", "whisper-small-kk-lora-final", (12, -16), "lr rank"),
     ("LoRA r=8", "phase13_lora_r8", "lora-r8-final", (10, 8), "rank"),
     ("LoRA r=64", "phase13_lora_r64", "lora-r64-final", (12, -4), "rank"),
-    ("full FT + 20% ru/en data", "phase11_mix", "whisper-small-kk-mix-final", (14, -24), None),
+    ("full FT + 20% ru/en data", "phase11_mix", "whisper-small-kk-mix-final", (18, 10), None),
+    ("LoRA r=32 + 20% ru/en data", "phase14_lora_mix", "lora-mix-final", (-34, -44), None),
 ]
 pts = []
 for label, phase, model, off, sweep in TRADEOFF:
@@ -137,7 +138,7 @@ if len(pts) >= 3:
         if len(line) > 1:
             ax3.plot([p[1] for p in line], [p[2] for p in line], "-", color=color, zorder=1, label=name)
     for label, kk, ru, off, sweep in pts:
-        color = "#2a78d6" if "LoRA" in label else ("#1baf7a" if "ru/en" in label else "#eb6834")
+        color = "#1baf7a" if "ru/en" in label else ("#2a78d6" if "LoRA" in label else "#eb6834")
         ax3.scatter(kk, ru, s=90, color=color, zorder=2, edgecolor="white", linewidth=1.5)
         ax3.annotate(f"{label}\nkk {kk:.3f} / ru {ru:.3f}", (kk, ru), textcoords="offset points",
                      xytext=off, fontsize=8.5, color="#333")

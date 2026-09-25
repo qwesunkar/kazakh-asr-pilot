@@ -6,10 +6,10 @@ compared with Russian and English, and what does it cost to run them locally?
 
 ## Summary
 
-Thirteen phases on one laptop (RTX 5060 Laptop, 8 GB VRAM): a zero-shot baseline on FLEURS, CPU inference with int8
+Fourteen phases on one laptop (RTX 5060 Laptop, 8 GB VRAM): a zero-shot baseline on FLEURS, CPU inference with int8
 quantization, Kazakh fine-tuning of whisper-small, an out-of-domain check on the Kazakh Speech Corpus, the fine-tuned
 model under int8, LoRA against full fine-tuning, a LoRA learning-rate sweep, confidence intervals, an error
-analysis, multilingual rehearsal, an out-of-domain check of that rehearsal, and a LoRA rank sweep.
+analysis, multilingual rehearsal, an out-of-domain check of that rehearsal, a LoRA rank sweep, and LoRA combined with rehearsal.
 Every number below comes from a full test set with identical normalization; per-utterance outputs are in `results/`,
 and every run carries a 95% bootstrap confidence interval (phase 9 lists which differences are statistically real).
 
@@ -20,7 +20,8 @@ and every run carries a 95% bootstrap confidence interval (phase 9 lists which d
 | whisper-small | 242 M | 0.770 | 0.863 |
 | **whisper-small fine-tuned on 11.8 h Kazakh** | 242 M | **0.238** (−69% rel.) | 0.469 (−46% rel.) |
 | whisper-small, same data, LoRA r=32 | 242 M (3.5 M trained) | 0.238 | 0.483 |
-| whisper-small, same data, LoRA r=64 | 242 M (7.1 M trained) | 0.216 (best Kazakh here, at ru 0.583) | not measured |
+| whisper-small, same data, LoRA r=64 | 242 M (7.1 M trained) | 0.216 (at ru 0.583) | not measured |
+| **whisper-small, LoRA r=32 + 20% ru/en rehearsal** | 242 M (3.5 M trained) | **0.215** (at ru 0.167) | not measured |
 | **whisper-small, fine-tuned + 20% ru/en rehearsal** | 242 M | **0.233** | 0.487 |
 | whisper-large-v3-turbo | 809 M | 0.208 | **0.286** |
 | mms-1b-all | 965 M | **0.144** | 0.297 |
@@ -43,7 +44,9 @@ For reference, Russian and English WER of zero-shot whisper-small on FLEURS: 0.1
    The LoRA rank sweep (r=8/32/64) traces the same curve, so what matters is how far the weights move, not the
    mechanism — and the two sides saturate differently: across that range Kazakh moves 0.048 WER while Russian moves 0.298.
    Mixing 20% Russian and English data into the fine-tuning set removes ~80% of the forgetting at no cost to Kazakh
-   (kk 0.233, ru 0.127 against a 0.110 baseline), in domain and on KSC alike. English is far less affected than Russian throughout —
+   (kk 0.233, ru 0.127 against a 0.110 baseline), in domain and on KSC alike, and it composes with LoRA:
+   LoRA + rehearsal reaches kk 0.215 at ru 0.167 inside 2.8 GB of VRAM, statistically tied with zero-shot
+   large-v3-turbo on Kazakh. English is far less affected than Russian throughout —
    interference tracks language similarity.
 6. **Local CPU inference is practical and int8 is nearly free.** int8 costs at most +0.4 WER points while running
    2.1–2.9× faster and taking 252 MB instead of 971 MB; one hour of speech costs 6–12 minutes of CPU time. The
@@ -602,3 +605,47 @@ r=32 → r=64 +0.168 [+0.157, +0.179]). On Kazakh no rank step is significant on
 - One seed per configuration; the Kazakh differences between ranks are within noise individually, and only the
   monotone trend across three points supports the reading above.
 - Rehearsal was not combined with LoRA, which is the obvious next configuration to try.
+
+## Phase 14: LoRA with rehearsal — the missing corner of the matrix
+
+Phases 11–13 left one configuration untried: the parameter-efficient method together with the data fix.
+LoRA r=32 at lr 1e-3 (the phase 6 recipe) trained on the phase 11 data mix (3189 Kazakh + 800 Russian +
+800 English utterances), 8 epochs, everything else unchanged.
+
+![Kazakh vs Russian trade-off](results/kk_vs_ru_tradeoff.png)
+
+| configuration | trainable | peak VRAM | WER kk | WER ru | WER en |
+|---|---|---|---|---|---|
+| whisper-small, no fine-tuning | — | — | 0.770 | **0.110** | **0.071** |
+| full fine-tuning | 242 M | 5.9 GB | 0.238 | 0.210 | 0.106 |
+| full fine-tuning + rehearsal | 242 M | 5.9 GB | 0.233 | **0.127** | 0.079 |
+| LoRA r=32 | 3.5 M | **2.8 GB** | 0.238 | 0.415 | 0.104 |
+| **LoRA r=32 + rehearsal** | **3.5 M** | **2.8 GB** | **0.215** | 0.167 | 0.090 |
+| large-v3-turbo, zero-shot (809 M) | — | — | 0.208 | 0.044 | 0.049 |
+
+Paired bootstrap: against plain LoRA, Kazakh −0.023 [−0.060, −0.001] and Russian −0.249 [−0.259, −0.238], both real.
+Against full fine-tuning with rehearsal, Kazakh is tied (−0.018 [−0.040, +0.001]) while Russian is worse
+(+0.039 [+0.032, +0.045]). Against zero-shot large-v3-turbo on Kazakh: **+0.007 [−0.004, +0.018], i.e. a statistical
+tie** — the same holds against LoRA r=64 (−0.001 [−0.011, +0.008]).
+
+### Findings (phase 14)
+
+1. **Rehearsal and LoRA compose.** Adding the same 20% of Russian/English data to the LoRA recipe cuts Russian error
+   from 0.415 to 0.167 *and* improves Kazakh from 0.238 to 0.215. The data fix works regardless of which parameters
+   are being trained, which is what phases 7 and 13 predicted: what matters is where the weights end up, not the
+   mechanism that moves them.
+2. **This configuration ties zero-shot large-v3-turbo on Kazakh** (0.215 vs 0.208, CI spans zero) with a 242 M model
+   whose adapter is 3.5 M parameters, trained in 70 minutes inside 2.8 GB of VRAM. For a Kazakh deployment that
+   should still handle Russian and English acceptably, it is the best accuracy-per-resource point measured here.
+3. **Full fine-tuning with rehearsal still retains Russian better** (0.127 vs 0.167, significant), so the choice is
+   between the best retention (full fine-tuning + rehearsal) and the best target-language accuracy per GB
+   (LoRA + rehearsal). Neither dominates.
+4. **The complete matrix**: rehearsal helps both methods; LoRA alone is the worst corner for retention; the two
+   rehearsal configurations are the only ones that keep Russian within 6 points of the untouched model.
+
+### Limitations (phase 14)
+
+- Single run per corner of the matrix, one mixing ratio, one rank, one learning rate per method.
+- Checkpoints are still selected on Kazakh validation WER alone.
+- Not evaluated on KSC, so the out-of-domain behaviour of this corner is unknown; phase 12 checked only the
+  full fine-tuning version.
