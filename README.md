@@ -173,3 +173,21 @@ done
 ```bash
 .venv/bin/python 01_zero_shot.py --dataset ksc --langs kk --models checkpoints/lora-mix/final --out results/phase15_lora_mix_ksc
 ```
+
+## Data and model attribution
+
+This repository redistributes reference transcripts (inside `results/*/*.csv`, alongside the model hypotheses) from:
+
+- **FLEURS** — Conneau et al., *FLEURS: Few-shot Learning Evaluation of Universal Representations of Speech*,
+  Google, licensed **CC BY 4.0**. https://huggingface.co/datasets/google/fleurs
+- **Kazakh Speech Corpus (KSC)** — Khassanov et al., *A Crowdsourced Open-Source Kazakh Speech Corpus and Initial
+  Speech Recognition Baseline*, ISSAI, Nazarbayev University, licensed **CC BY 4.0**. https://www.openslr.org/102/
+  The test split was read from a community parquet mirror (`Shirali/ISSAI_KSC_335RS_v_1_1`), not from the official
+  archive; provenance was not verified against ISSAI's release.
+
+No audio is redistributed here — only transcripts and the models' own output.
+
+Models evaluated: **Whisper** (OpenAI, MIT) and **MMS-1b-all** (Meta, CC-BY-NC 4.0 — non-commercial;
+it is used here only for evaluation). Fine-tuned weights are not published in this repository.
+
+Code in this repository is available for reuse; no separate LICENSE file has been added yet.
